@@ -382,7 +382,6 @@ if route == "organize":
             window.parent.postMessage({{type:'order', order}}, '*');
           }}
         </script>
-        """
         components.html(html, height=520, scrolling=True)
         order_str = st.query_params.get("order")
         order = [int(x) for x in order_str.split(",")] if order_str else list(range(total))
@@ -954,3 +953,4 @@ if route == "help":
     - **Batch** jobs can take time; download the ZIP once done.
     - We never retain files longer than **2 hours**.
     """)
+
