@@ -5,3 +5,7 @@ pypdf>=4.2
 pymupdf==1.24.10
 pikepdf==9.2.1
 pdf2docx>=0.5.6
+pandas>=2.0
+openpyxl>=3.1
+camelot-py[cv]>=0.11
+opencv-python-headless>=4.8
