@@ -18,6 +18,7 @@ import pandas as pd
 # - pdf2docx
 # - camelot, openpyxl
 # - pytesseract, reportlab
+# - streamlit_drawable_canvas
 
 # -------------------------------------------------------------------------------------
 # Page config / Router
@@ -30,7 +31,6 @@ st.set_page_config(
 )
 
 # Simple query-param router
-
 def set_route(tool: str | None):
     qp = st.query_params
     if tool:
@@ -52,7 +52,6 @@ HISTORY_MAX = 10
 if "history" not in st.session_state:
     st.session_state.history = []  # list of dicts: {label, bytes, mime, name, ts}
 
-
 def add_history(label: str, data: bytes, name: str, mime: str = "application/pdf"):
     st.session_state.history.insert(0, {
         "label": label,
@@ -63,7 +62,6 @@ def add_history(label: str, data: bytes, name: str, mime: str = "application/pdf
     })
     st.session_state.history = st.session_state.history[:HISTORY_MAX]
 
-
 def enforce_free_limit(uploaded_file):
     data = uploaded_file.getvalue() if hasattr(uploaded_file, "getvalue") else uploaded_file.read()
     size_mb = len(data) / 1024 / 1024
@@ -72,15 +70,14 @@ def enforce_free_limit(uploaded_file):
         st.stop()
     return data
 
-
 # -------------------------------------------------------------------------------------
 # Utilities: ghostscript, libreoffice, pdf helpers, thumbnails, PDF/A, flatten, metadata
 # -------------------------------------------------------------------------------------
-
 def find_ghostscript():
     for name in ["gswin64c", "gswin32c", "gs"]:
         p = shutil.which(name)
-        if p: return p
+        if p:
+            return p
     root = r"C:\\Program Files\\gs"
     if os.path.isdir(root):
         for r, _, files in os.walk(root):
@@ -89,7 +86,6 @@ def find_ghostscript():
             if "gswin32c.exe" in files:
                 return os.path.join(r, "gswin32c.exe")
     return None
-
 
 def compress_with_gs(input_bytes: bytes, quality: str = "/ebook") -> bytes:
     exe = find_ghostscript()
@@ -106,7 +102,6 @@ def compress_with_gs(input_bytes: bytes, quality: str = "/ebook") -> bytes:
             raise RuntimeError("Ghostscript failed to compress.")
         return open(f_out.name, "rb").read()
 
-
 def export_pdfa(input_bytes: bytes) -> bytes:
     # Convert to PDF/A-1b via Ghostscript profile
     exe = find_ghostscript()
@@ -122,7 +117,6 @@ def export_pdfa(input_bytes: bytes) -> bytes:
             raise RuntimeError("Ghostscript failed to export PDF/A.")
         return open(f_out.name, "rb").read()
 
-
 def soffice_convert(input_bytes: bytes, in_suffix: str, out_fmt: str = "pdf") -> bytes:
     with tempfile.TemporaryDirectory() as d:
         in_path  = os.path.join(d, f"in{in_suffix}")
@@ -136,7 +130,6 @@ def soffice_convert(input_bytes: bytes, in_suffix: str, out_fmt: str = "pdf") ->
         with open(out_path, "rb") as f:
             return f.read()
 
-
 def read_pdf_strict(uploaded_file):
     try:
         r = PdfReader(uploaded_file)
@@ -147,7 +140,6 @@ def read_pdf_strict(uploaded_file):
     except Exception as e:
         st.error(f"Could not read PDF: {e}")
         return None
-
 
 def render_thumbs(pdf_bytes: bytes, dpi: int = 100) -> List[dict]:
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -160,7 +152,6 @@ def render_thumbs(pdf_bytes: bytes, dpi: int = 100) -> List[dict]:
     doc.close()
     return thumbs
 
-
 def flatten_all(pdf_bytes: bytes) -> bytes:
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     for p in doc:
@@ -170,14 +161,12 @@ def flatten_all(pdf_bytes: bytes) -> bytes:
     out = io.BytesIO(); doc.save(out, deflate=True); doc.close(); out.seek(0)
     return out.getvalue()
 
-
 def remove_metadata(pdf_bytes: bytes) -> bytes:
     pdf = pikepdf.open(io.BytesIO(pdf_bytes))
     pdf.root.Metadata = None
     pdf.docinfo.clear()
     out = io.BytesIO(); pdf.save(out); out.seek(0)
     return out.getvalue()
-
 
 def list_images(pdf_bytes: bytes) -> List[Tuple[int, bytes, str]]:
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -189,7 +178,6 @@ def list_images(pdf_bytes: bytes) -> List[Tuple[int, bytes, str]]:
             results.append((pno, base.get("image"), base.get("ext", "png")))
     doc.close()
     return results
-
 
 def parse_page_spec(spec: str, total_pages: int):
     pages, spec = [], (spec or "").replace(" ", "")
@@ -219,7 +207,7 @@ st.markdown(
     """
     <div style="text-align:center; margin-top:8px;">
       <h1 style="margin-bottom:6px;">OnePlacePDF — Edit Any PDF in One Place</h1>
-      <p style="margin-top:0;color:#64748b;">Convert, edit, compress, sign & convert — fast and private. <b>Files auto‑deleted from server after 2 hours.</b></p>
+      <p style="margin-top:0;color:#64748b;">Convert, edit, compress, sign & convert — fast and private. <b>Files auto-deleted from server after 2 hours.</b></p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -285,7 +273,7 @@ TOOLS = [
     {"key":"bates", "label":"Bates Numbers", "desc":"Legal stamping", "emoji":"🧾"},
     {"key":"forms", "label":"Forms", "desc":"List, fill, flatten", "emoji":"📝"},
     {"key":"redact", "label":"Redact/Highlight", "desc":"Search & redact safely", "emoji":"🩹"},
-    {"key":"signature", "label":"e‑Sign", "desc":"Draw/type & place", "emoji":"🖊️"},
+    {"key":"signature", "label":"e-Sign", "desc":"Draw/type & place", "emoji":"🖊️"},
     {"key":"ocr", "label":"OCR", "desc":"Scans → searchable PDF", "emoji":"🧠"},
     {"key":"metadata", "label":"Metadata", "desc":"View/clean metadata", "emoji":"🔍"},
     {"key":"extract", "label":"Extract", "desc":"Images & text", "emoji":"📤"},
@@ -293,7 +281,6 @@ TOOLS = [
     {"key":"office", "label":"Office ↔ PDF", "desc":"DOCX/PPTX/XLSX", "emoji":"🧩"},
     {"key":"batch", "label":"Batch Recipes", "desc":"Combine steps & zip", "emoji":"📦"},
 ]
-
 
 def show_dashboard():
     st.markdown(
@@ -327,7 +314,6 @@ def show_dashboard():
         )
     st.markdown("</div>", unsafe_allow_html=True)
 
-
 # Sidebar: history & presets
 with st.sidebar:
     st.header("History")
@@ -337,7 +323,7 @@ with st.sidebar:
         with st.expander(f"{item['label']} — {item['name']}"):
             st.download_button("Download", data=item["data"], file_name=item["name"], mime=item["mime"], key=f"hist{i}")
     st.header("Presets")
-    st.caption("One‑click recipes")
+    st.caption("One-click recipes")
     st.markdown("- Confidential watermark + page numbers\n- OCR scan + compress\n- Bates + PDF/A export")
 
 # -------------------------------------------------------------------------------------
@@ -375,14 +361,19 @@ if route == "organize":
             el.draggable=true;
             el.addEventListener('dragstart', e=>{{drag=el;}});
             el.addEventListener('dragover', e=>e.preventDefault());
-            el.addEventListener('drop', e=>{{e.preventDefault(); if(drag && drag!==el){{ grid.insertBefore(drag, el); send(); }} }});
+            el.addEventListener('drop', e=>{{
+              e.preventDefault();
+              if(drag && drag!==el){{
+                grid.insertBefore(drag, el);
+                const order=[...grid.children].map(el=>el.dataset.i);
+                window.parent.postMessage({{type:'order', order}}, '*');
+              }}
+            }});
           });
-          function send(){{
-            const order=[...grid.children].map(el=>el.dataset.i);
-            window.parent.postMessage({{type:'order', order}}, '*');
-          }}
         </script>
+        """
         components.html(html, height=520, scrolling=True)
+
         order_str = st.query_params.get("order")
         order = [int(x) for x in order_str.split(",")] if order_str else list(range(total))
 
@@ -397,26 +388,16 @@ if route == "organize":
             name = st.text_input("Output name", "organized.pdf")
 
         if st.button("Apply & Download", type="primary"):
+            # Build respecting delete first, then reorder (more intuitive)
+            dels = set(parse_page_spec(delete_spec, total)) if delete_spec.strip() else set()
             w = PdfWriter()
-            # apply reordering
-            for i in order:
-                p = r.pages[i]
+            for idx in order:
+                if idx in dels:
+                    continue
+                p = r.pages[idx]
                 if rot in (90,180,270):
                     p.rotate(rot)
                 w.add_page(p)
-            # apply delete (after reorder meaning indexes changed). Do delete by spec on original total instead:
-            # So instead, rebuild from original respecting deletes first, then reorder; clearer UX is to show checkboxes per thumb.
-            # For now: if delete_spec provided, rebuild ignoring those indices from ORIGINAL.
-            if delete_spec.strip():
-                dels = set(parse_page_spec(delete_spec, total))
-                w2 = PdfWriter()
-                for idx in order:
-                    if idx not in dels:
-                        page = r.pages[idx]
-                        if rot in (90,180,270):
-                            page.rotate(rot)
-                        w2.add_page(page)
-                w = w2
             out = io.BytesIO(); w.write(out); out.seek(0)
             add_history("Organize", out.getvalue(), name)
             st.success("Done. Download below.")
@@ -428,7 +409,8 @@ if route == "organize":
                 st.warning("Enter valid pages to extract.")
             else:
                 w = PdfWriter()
-                for i in idxs: w.add_page(r.pages[i])
+                for i in idxs:
+                    w.add_page(r.pages[i])
                 out = io.BytesIO(); w.write(out); out.seek(0)
                 add_history("Extract", out.getvalue(), "extracted.pdf")
                 st.download_button("⬇️ extracted.pdf", out.getvalue(), "extracted.pdf")
@@ -442,8 +424,10 @@ if route == "merge":
         for f in files:
             enforce_free_limit(f)
             r = read_pdf_strict(f)
-            if not r: st.stop()
-            for p in r.pages: w.add_page(p)
+            if not r:
+                st.stop()
+            for p in r.pages:
+                w.add_page(p)
         out = io.BytesIO(); w.write(out); out.seek(0)
         add_history("Merge", out.getvalue(), "merged.pdf")
         st.download_button("⬇️ merged.pdf", out.getvalue(), "merged.pdf")
@@ -465,7 +449,8 @@ if route == "split":
                     st.warning("Enter ranges like 1-3,5.")
                 else:
                     w = PdfWriter()
-                    for i in idxs: w.add_page(r.pages[i])
+                    for i in idxs:
+                        w.add_page(r.pages[i])
                     out = io.BytesIO(); w.write(out); out.seek(0)
                     add_history("Split", out.getvalue(), "split.pdf")
                     st.download_button("⬇️ split.pdf", out.getvalue(), "split.pdf")
@@ -483,16 +468,14 @@ if route == "split":
                 zbuf.seek(0)
                 st.download_button("⬇️ parts.zip", zbuf.getvalue(), "parts.zip", "application/zip")
         else:
-            # bookmarks split
-            outlines = r.outline if hasattr(r, "outline") else []
+            outlines = getattr(r, "outlines", None)
             if not outlines:
                 st.info("No bookmarks found.")
             else:
-                st.caption("Top-level bookmarks detected; splitting each section → PDF")
+                # Placeholder: split by single pages (robust fallback)
+                st.caption("Top-level bookmarks detected; exporting per-page sections as a simple fallback.")
                 zbuf = io.BytesIO()
                 with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
-                    # naive: iterate /Outlines not always trivial with pypdf; fallback by searching page labels is complex
-                    # As a placeholder, export first-level pages each as single-page PDFs.
                     for i, _ in enumerate(r.pages):
                         w = PdfWriter(); w.add_page(r.pages[i])
                         b = io.BytesIO(); w.write(b)
@@ -566,7 +549,8 @@ if route == "img_to_pdf":
         imgs = []
         for f in files:
             im = Image.open(f)
-            if im.mode != "RGB": im = im.convert("RGB")
+            if im.mode != "RGB":
+                im = im.convert("RGB")
             b = io.BytesIO(); im.save(b, format="JPEG", quality=quality)
             imgs.append(b.getvalue())
         pdf_bytes = img2pdf.convert(imgs)
@@ -580,7 +564,8 @@ if route == "protect":
     pwd = st.text_input("Password", type="password")
     if f and pwd and st.button("Protect"):
         r = read_pdf_strict(f); w = PdfWriter()
-        for p in r.pages: w.add_page(p)
+        for p in r.pages:
+            w.add_page(p)
         out = io.BytesIO(); w.encrypt(user_password=pwd, owner_password=pwd); w.write(out); out.seek(0)
         add_history("Protect", out.getvalue(), "protected.pdf")
         st.download_button("⬇️ protected.pdf", out.getvalue(), "protected.pdf")
@@ -650,7 +635,7 @@ if route == "bates":
     prefix = st.text_input("Prefix", "CASE-2025-")
     start = st.number_input("Start #", min_value=1, value=1, step=1)
     pad = st.number_input("Zero padding", min_value=1, value=6, step=1)
-    pos = st.selectbox("Position", ["Bottom-Right","Bottom-Center","Bottom-Left"]) 
+    pos = st.selectbox("Position", ["Bottom-Right","Bottom-Center","Bottom-Left"])
     if f and st.button("Add Bates"):
         data = enforce_free_limit(f)
         doc = fitz.open(stream=data, filetype="pdf")
@@ -705,10 +690,10 @@ if route == "redact":
     if base_pdf and query and st.button("Apply"):
         data = enforce_free_limit(base_pdf)
         doc = fitz.open(stream=data, filetype="pdf")
-        flags = 0 if case_sens else fitz.TEXT_DEHYPHENATE  # not true case flag; PyMuPDF lacks case toggle in search_for
+        flags = 0 if case_sens else getattr(fitz, "TEXT_IGNORECASE", 0)
         hits = 0
         for page in doc:
-            rects = page.search_for(query) or []
+            rects = page.search_for(query, flags=flags) or []
             for r in rects:
                 hits += 1
                 if action.startswith("Redact"):
@@ -722,13 +707,18 @@ if route == "redact":
         st.success(f"{action.split()[0]}ed {hits} occurrence(s).")
         st.download_button("⬇️ edited.pdf", out.getvalue(), "edited.pdf")
 
-# ---- e‑Sign (draw/type) ----
+# ---- e-Sign (draw/type) ----
 if route == "signature":
-    st.subheader("🖊️ e‑Sign — draw or upload signature image")
-    from streamlit_drawable_canvas import st_canvas
+    st.subheader("🖊️ e-Sign — draw or upload signature image")
+    try:
+        from streamlit_drawable_canvas import st_canvas
+    except Exception:
+        st.error("Missing package `streamlit-drawable-canvas`. Install to use e-Sign.")
+        st.stop()
     base_pdf = st.file_uploader("Upload PDF to sign", type=["pdf"], key="esign_pdf")
     st.caption("Draw your signature below (transparent background)")
-    canvas = st_canvas(fill_color="rgba(0,0,0,0)", stroke_width=2, stroke_color="#000000", background_color="#ffffff", width=400, height=150, drawing_mode="freedraw", key="sigpad")
+    canvas = st_canvas(fill_color="rgba(0,0,0,0)", stroke_width=2, stroke_color="#000000",
+                       background_color="#ffffff", width=400, height=150, drawing_mode="freedraw", key="sigpad")
     place = st.selectbox("Position", ["Bottom-Right","Bottom-Left","Top-Right","Top-Left","Center"])
     width_pct = st.slider("Signature width (% of page)", 5, 40, 20)
     mode = st.radio("Apply to", ["Last page", "All pages"], horizontal=True)
@@ -819,8 +809,10 @@ if route == "extract":
                 r = PdfReader(io.BytesIO(data))
                 chunks = []
                 for i, p in enumerate(r.pages, start=1):
-                    try: t = p.extract_text() or ""
-                    except Exception: t = ""
+                    try:
+                        t = p.extract_text() or ""
+                    except Exception:
+                        t = ""
                     chunks.append(f"--- Page {i} ---\n{t}\n")
                 txt = "\n".join(chunks)
                 st.download_button("⬇️ text.txt", txt.encode("utf-8"), "extracted-text.txt", "text/plain")
@@ -913,7 +905,6 @@ if route == "batch":
                     elif preset == "OCR then Compress":
                         try:
                             import pytesseract
-                            # quick OCR (image layer only)
                             doc = fitz.open(stream=out_bytes, filetype="pdf"); out_pdf = fitz.open()
                             for page in doc:
                                 pix = page.get_pixmap(matrix=fitz.Matrix(200/72, 200/72), alpha=False)
@@ -941,3 +932,11 @@ if route == "batch":
         zbuf.seek(0)
         st.download_button("⬇️ batch.zip", zbuf.getvalue(), "processed_bundle.zip", "application/zip")
 
+# ---- Help (simple) ----
+if route == "help":
+    st.subheader("ℹ️ Help")
+    st.markdown("""
+- For password-locked PDFs: use **Unlock** with the correct current password first.
+- Very large files may be slow; aim for ≤ 200 pages per operation on free tier.
+- OCR needs Tesseract installed in the container (`apt-get install tesseract-ocr`).
+""")
