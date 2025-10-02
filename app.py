@@ -23,7 +23,7 @@ st.set_page_config(
 st.markdown(
     """
     <div style="text-align:center; margin-top:8px;">
-      <h1 style="margin-bottom:6px;">OnePlacePDF</h1>
+      <h1 style="margin-bottom:6px;">OnePlacePDF — Edit Any PDF in One Place</h1>
       <p style="margin-top:0;color:#64748b;">
         Merge, split, compress, sign & convert — fast and private.
       </p>
@@ -31,11 +31,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-
-# App title + tagline
-st.title("OnePlacePDF — Edit Any PDF in One Place")
-st.caption("Merge, split, compress, sign & convert — fast and private.")
 
 
 # ---------------- Helpers ----------------
@@ -573,10 +568,7 @@ with tab_pagenum:
         out = io.BytesIO(); doc.save(out); doc.close(); out.seek(0)
         st.success("Page numbers added!")
         st.download_button("⬇️ numbered.pdf", out.getvalue(), file_name="numbered.pdf", mime="application/pdf")
-# Add to your tabs list names if needed:
-# ... , "Word → PDF", "PowerPoint → PDF", "Excel → PDF", "PDF → Excel (tables)"
 
-tab_word, tab_ppt, tab_xls, tab_pdf2xls = st.tabs(["Word → PDF", "PowerPoint → PDF", "Excel → PDF", "PDF → Excel (tables)"])
 
 # ----- NEW: Office converters live only inside this tab -----
 with tab_office:
@@ -647,6 +639,7 @@ with tab_office:
                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             except Exception as e:
                 st.error(f"Extraction failed: {e}")
+
 
 
 
