@@ -106,12 +106,13 @@ def soffice_convert(input_bytes: bytes, in_suffix: str, out_fmt: str = "pdf") ->
             return f.read()
 
 # --------------- MAIN TABS ---------------
-(tab_img2pdf, tab_merge, tab_split, tab_rotate, tab_reorder, tab_extract,
- tab_edit, tab_compress, tab_protect, tab_unlock, tab_pdf2img, tab_pdf2docx,
- tab_watermark, tab_pagenum) = st.tabs([
-    "Images → PDF", "Merge", "Split", "Rotate", "Re-order", "Extract Text",
-    "Edit", "Compress", "Protect (Password)", "Unlock (Password)",
-    "PDF → Images", "PDF → DOCX", "Watermark (Text)", "Page Numbers"
+# ----- TOP-LEVEL NAV -----
+tab_img2pdf, tab_merge, tab_split, tab_rotate, tab_reorder, tab_extract, tab_edit, \
+tab_compress, tab_protect, tab_unlock, tab_pdf2img, tab_pdf2docx, tab_watermark, \
+tab_pagenum, tab_office = st.tabs([
+    "Images → PDF", "Merge", "Split", "Rotate", "Re-order", "Extract Text", "Edit",
+    "Compress", "Protect (Password)", "Unlock (Password)", "PDF → Images",
+    "PDF → DOCX", "Watermark (Text)", "Page Numbers", "Office ↔ PDF"       # 👈 NEW
 ])
 
 # --- Images → PDF ---
@@ -565,69 +566,74 @@ with tab_pagenum:
 
 tab_word, tab_ppt, tab_xls, tab_pdf2xls = st.tabs(["Word → PDF", "PowerPoint → PDF", "Excel → PDF", "PDF → Excel (tables)"])
 
-# --- Word → PDF ---
-with tab_word:
-    st.subheader("Convert Word (DOC/DOCX) → PDF")
-    f = st.file_uploader("Upload DOC or DOCX", type=["doc", "docx", "rtf", "odt"], key="doc2pdf")
-    if f and st.button("Convert to PDF", key="btn_doc2pdf"):
-        suffix = os.path.splitext(f.name)[1] or ".docx"
-        try:
-            pdf_bytes = soffice_convert(f.read(), suffix, out_fmt="pdf")
-            st.success("Converted!")
-            st.download_button("⬇️ download.pdf", pdf_bytes, "converted.pdf", "application/pdf")
-        except Exception as e:
-            st.error(f"Conversion failed: {e}")
+# ----- NEW: Office converters live only inside this tab -----
+with tab_office:
+    st.subheader("Office ↔ PDF")
+    t_word, t_ppt, t_xls, t_pdf2xls = st.tabs(["Word → PDF", "PowerPoint → PDF",
+                                               "Excel → PDF", "PDF → Excel (tables)"])
 
-# --- PowerPoint → PDF ---
-with tab_ppt:
-    st.subheader("Convert PowerPoint (PPT/PPTX) → PDF")
-    f = st.file_uploader("Upload PPT or PPTX", type=["ppt", "pptx", "odp"], key="ppt2pdf")
-    if f and st.button("Convert to PDF", key="btn_ppt2pdf"):
-        suffix = os.path.splitext(f.name)[1] or ".pptx"
-        try:
-            pdf_bytes = soffice_convert(f.read(), suffix, out_fmt="pdf")
-            st.success("Converted!")
-            st.download_button("⬇️ slides.pdf", pdf_bytes, "slides.pdf", "application/pdf")
-        except Exception as e:
-            st.error(f"Conversion failed: {e}")
+    # Word → PDF
+    with t_word:
+        st.subheader("Convert Word (DOC/DOCX) → PDF")
+        f = st.file_uploader("Upload DOC or DOCX", type=["doc", "docx", "rtf", "odt"], key="doc2pdf")
+        if f and st.button("Convert to PDF", key="btn_doc2pdf"):
+            suffix = os.path.splitext(f.name)[1] or ".docx"
+            try:
+                pdf_bytes = soffice_convert(f.read(), suffix, out_fmt="pdf")
+                st.success("Converted!")
+                st.download_button("⬇️ download.pdf", pdf_bytes, "converted.pdf", "application/pdf")
+            except Exception as e:
+                st.error(f"Conversion failed: {e}")
 
-# --- Excel → PDF ---
-with tab_xls:
-    st.subheader("Convert Excel (XLS/XLSX) → PDF")
-    f = st.file_uploader("Upload XLS or XLSX", type=["xls", "xlsx", "ods", "csv"], key="xls2pdf")
-    if f and st.button("Convert to PDF", key="btn_xls2pdf"):
-        suffix = os.path.splitext(f.name)[1] or ".xlsx"
-        try:
-            pdf_bytes = soffice_convert(f.read(), suffix, out_fmt="pdf")
-            st.success("Converted!")
-            st.download_button("⬇️ workbook.pdf", pdf_bytes, "workbook.pdf", "application/pdf")
-        except Exception as e:
-            st.error(f"Conversion failed: {e}")
+    # PowerPoint → PDF
+    with t_ppt:
+        st.subheader("Convert PowerPoint (PPT/PPTX) → PDF")
+        f = st.file_uploader("Upload PPT or PPTX", type=["ppt", "pptx", "odp"], key="ppt2pdf")
+        if f and st.button("Convert to PDF", key="btn_ppt2pdf"):
+            suffix = os.path.splitext(f.name)[1] or ".pptx"
+            try:
+                pdf_bytes = soffice_convert(f.read(), suffix, out_fmt="pdf")
+                st.success("Converted!")
+                st.download_button("⬇️ slides.pdf", pdf_bytes, "slides.pdf", "application/pdf")
+            except Exception as e:
+                st.error(f"Conversion failed: {e}")
 
-# --- PDF → Excel (tables) ---
-with tab_pdf2xls:
-    st.subheader("Extract tables: PDF → Excel (XLSX)")
-    one_pdf = st.file_uploader("Upload a PDF with tables", type=["pdf"], key="pdf2xls")
-    flavor = st.selectbox("Detection mode", ["lattice (lines)", "stream (no lines)"], index=0)
-    pages = st.text_input("Pages (e.g., 1,3,5 or 1-4)", "all")
-    if one_pdf and st.button("Extract tables", key="btn_pdf2xls"):
-        try:
-            # Save to temp and run camelot
-            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as ftmp:
-                ftmp.write(one_pdf.read()); pdf_path = ftmp.name
-            mode = "lattice" if flavor.startswith("lattice") else "stream"
-            tables = camelot.read_pdf(pdf_path, pages=pages, flavor=mode)
-            if tables.n == 0:
-                st.warning("No tables detected. Try switching detection mode or page range.")
-            else:
-                xbuf = io.BytesIO()
-                with pd.ExcelWriter(xbuf, engine="openpyxl") as writer:
-                    for i, t in enumerate(tables):
-                        t.df.to_excel(writer, index=False, sheet_name=f"Table{i+1}")
-                st.success(f"Extracted {tables.n} table(s).")
-                st.download_button("⬇️ tables.xlsx", xbuf.getvalue(), "tables.xlsx",
-                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        except Exception as e:
-            st.error(f"Extraction failed: {e}")
+    # Excel → PDF
+    with t_xls:
+        st.subheader("Convert Excel (XLS/XLSX) → PDF")
+        f = st.file_uploader("Upload XLS or XLSX", type=["xls", "xlsx", "ods", "csv"], key="xls2pdf")
+        if f and st.button("Convert to PDF", key="btn_xls2pdf"):
+            suffix = os.path.splitext(f.name)[1] or ".xlsx"
+            try:
+                pdf_bytes = soffice_convert(f.read(), suffix, out_fmt="pdf")
+                st.success("Converted!")
+                st.download_button("⬇️ workbook.pdf", pdf_bytes, "workbook.pdf", "application/pdf")
+            except Exception as e:
+                st.error(f"Conversion failed: {e}")
+
+    # PDF → Excel (tables)
+    with t_pdf2xls:
+        st.subheader("Extract tables: PDF → Excel (XLSX)")
+        one_pdf = st.file_uploader("Upload a PDF with tables", type=["pdf"], key="pdf2xls")
+        flavor = st.selectbox("Detection mode", ["lattice (lines)", "stream (no lines)"], index=0)
+        pages = st.text_input("Pages (e.g., 1,3,5 or 1-4)", "all")
+        if one_pdf and st.button("Extract tables", key="btn_pdf2xls"):
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as ftmp:
+                    ftmp.write(one_pdf.read()); pdf_path = ftmp.name
+                mode = "lattice" if flavor.startswith("lattice") else "stream"
+                tables = camelot.read_pdf(pdf_path, pages=pages, flavor=mode)
+                if tables.n == 0:
+                    st.warning("No tables detected. Try switching detection mode or page range.")
+                else:
+                    xbuf = io.BytesIO()
+                    with pd.ExcelWriter(xbuf, engine="openpyxl") as writer:
+                        for i, t in enumerate(tables):
+                            t.df.to_excel(writer, index=False, sheet_name=f"Table{i+1}")
+                    st.success(f"Extracted {tables.n} table(s).")
+                    st.download_button("⬇️ tables.xlsx", xbuf.getvalue(), "tables.xlsx",
+                                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            except Exception as e:
+                st.error(f"Extraction failed: {e}")
 
 
