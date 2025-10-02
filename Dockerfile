@@ -1,8 +1,10 @@
 FROM python:3.11-slim
 
-# Install Ghostscript for the Compress feature
+# Tools needed for features
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ghostscript \
+    libreoffice \
+    fonts-dejavu \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
