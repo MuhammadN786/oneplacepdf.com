@@ -79,13 +79,13 @@ tabs = st.tabs([
     "PDF → Images", "PDF → DOCX", "Watermark", "Page Numbers", "Office → PDF"
 ])
 
-# ---------- Tab 1: Images → PDF ----------
+# ---------- Tab 1: Images → PDF (HQ, no recompression) ----------
 with tabs[0]:
     st.subheader("Images → PDF (high quality)")
 
     imgs = st.file_uploader(
-        "Upload images (JPG/PNG, ordered)", 
-        type=["jpg", "jpeg", "png"], 
+        "Upload images (JPG/PNG, ordered)",
+        type=["jpg", "jpeg", "png"],
         accept_multiple_files=True
     )
 
@@ -96,67 +96,141 @@ with tabs[0]:
         img_paths = _save_uploads(imgs)
 
         # Preview thumbnails
-        thumbs = []
-        for idx, p in enumerate(img_paths):
-            im = Image.open(p)
-            thumbs.append((idx, im.copy()))
-
         cols = st.columns(4)
-        for i, (idx, im) in enumerate(thumbs):
-            with cols[i % 4]:
-                st.image(im.resize((120, int(im.height * 120 / im.width))), caption=f"Img {i+1}")
+        for i, p in enumerate(img_paths):
+            with Image.open(p) as im:
+                thumb_w = 140
+                thumb_h = int(im.height * thumb_w / max(1, im.width))
+                with cols[i % 4]:
+                    st.image(im.resize((thumb_w, thumb_h)), caption=f"Img {i+1}", use_column_width=False)
 
-        # Options
+        # Options (quality-first)
         st.markdown("### Options")
-        page_size = st.selectbox("Page size", ["Original", "A4", "Letter"])
-        margin = st.slider("Margin (pt)", 0, 100, 20)
-        orientation = st.selectbox("Orientation", ["Auto", "Portrait", "Landscape"])
-        one_pdf = st.radio("Output", ["Single PDF (all images)", "One PDF per image (ZIP)"])
+        page_size = st.selectbox("Page size", ["Original", "A4", "Letter"], index=0)
+        target_dpi = st.selectbox("Target DPI (for A4/Letter/Original scaling)", [300, 600], index=0)
+        margin_pt = st.slider("Margin (points)", 0, 96, 24)
+        orientation = st.selectbox("Orientation (for A4/Letter)", ["Auto", "Portrait", "Landscape"], index=0)
+        output_mode = st.radio("Output", ["Single PDF (all images)", "One PDF per image (ZIP)"], index=0)
+
+        # Helpers
+        def _page_dims_pts(img_w_px, img_h_px):
+            """
+            Return page width/height in PDF points (1 pt = 1/72 inch),
+            chosen to keep effective resolution at 'target_dpi' and avoid blur.
+            """
+            if page_size == "Original":
+                # Size page so the image prints at chosen DPI (no hidden downscale)
+                w_in = img_w_px / float(target_dpi)
+                h_in = img_h_px / float(target_dpi)
+                return w_in * 72.0, h_in * 72.0
+
+            if page_size == "A4":
+                base = (595.276, 841.890)   # A4 @ 72pt/in
+            else:  # Letter
+                base = (612.0, 792.0)       # Letter @ 72pt/in
+
+            w_pt, h_pt = base
+            # Orientation choice
+            if orientation == "Landscape" or (orientation == "Auto" and img_w_px > img_h_px):
+                w_pt, h_pt = h_pt, w_pt
+
+            return w_pt, h_pt
+
+        def _target_rect(page_rect, img_w_px, img_h_px):
+            """Return a fit-rect inside page_rect with margins, preserving aspect ratio."""
+            inner = fitz.Rect(
+                page_rect.x0 + margin_pt,
+                page_rect.y0 + margin_pt,
+                page_rect.x1 - margin_pt,
+                page_rect.y1 - margin_pt
+            )
+            # Scale to fit (keep_proportion=True already preserves AR, but we precompute a good rect)
+            pw, ph = inner.width, inner.height
+            ar_img = img_w_px / max(1.0, img_h_px)
+            if pw / ph > ar_img:
+                # limited by height
+                new_h = ph
+                new_w = ar_img * new_h
+            else:
+                # limited by width
+                new_w = pw
+                new_h = new_w / max(1.0, ar_img)
+            x0 = inner.x0 + (pw - new_w) / 2.0
+            y0 = inner.y0 + (ph - new_h) / 2.0
+            return fitz.Rect(x0, y0, x0 + new_w, y0 + new_h)
+
+        def _image_stream_lossless(img_path: str) -> bytes:
+            """
+            Return original image bytes when safe (JPEG/PNG).
+            If image has alpha (PNG), flatten to RGB on white (PDF doesn't handle alpha in all viewers).
+            """
+            with open(img_path, "rb") as f:
+                raw = f.read()
+            try:
+                with Image.open(io.BytesIO(raw)) as im:
+                    if im.mode in ("RGBA", "LA", "P"):
+                        # Flatten transparency to avoid black/fringing when embedded
+                        bg = Image.new("RGB", im.size, (255, 255, 255))
+                        bg.paste(im.convert("RGBA"), mask=im.convert("RGBA").split()[-1] if "A" in im.getbands() else None)
+                        buf = io.BytesIO()
+                        # Save as PNG (lossless) to keep text edges crisp
+                        bg.save(buf, format="PNG", optimize=True)
+                        return buf.getvalue()
+                    # For plain JPEG/PNG, use original bytes (no recompress)
+                    return raw
+            except Exception:
+                return raw
 
         if st.button("Convert to PDF"):
-            tmpdir = tempfile.mkdtemp(prefix="img2pdf_")
+            tmpdir = tempfile.mkdtemp(prefix="img2pdf_hq_")
 
-            def page_dims_for(img):
-                if page_size == "Original":
-                    return img.size
-                elif page_size == "A4":
-                    return (595, 842) if orientation != "Landscape" else (842, 595)
-                elif page_size == "Letter":
-                    return (612, 792) if orientation != "Landscape" else (792, 612)
+            try:
+                if output_mode.startswith("Single"):
+                    doc = fitz.open()
+                    for p in img_paths:
+                        with Image.open(p) as im:
+                            iw, ih = im.size
+                        w_pt, h_pt = _page_dims_pts(iw, ih)
+                        page = doc.new_page(width=w_pt, height=h_pt)
+                        rect = _target_rect(page.rect, iw, ih)
+                        page.insert_image(
+                            rect,
+                            stream=_image_stream_lossless(p),
+                            keep_proportion=True,
+                            overlay=True
+                        )
+                    out = io.BytesIO()
+                    # deflate=True compresses PDF structure, not your images
+                    doc.save(out, deflate=True)
+                    doc.close()
+                    _download("Download images.pdf", out.getvalue(), "images.pdf", "application/pdf")
 
-            if one_pdf.startswith("Single"):
-                doc = fitz.open()
-                for p in img_paths:
-                    im = Image.open(p)
-                    w, h = page_dims_for(im)
-                    page = doc.new_page(width=w, height=h)
-                    rect = page.rect
-                    # Shrink rect by margin
-                    rect = fitz.Rect(rect.x0+margin, rect.y0+margin, rect.x1-margin, rect.y1-margin)
-                    page.insert_image(rect, filename=p, keep_proportion=True)
-                out = io.BytesIO()
-                doc.save(out, deflate=True)
-                doc.close()
-                _download("Download images.pdf", out.getvalue(), "images.pdf", "application/pdf")
-            else:
-                # One PDF per image
-                mem = io.BytesIO()
-                with zipfile.ZipFile(mem, "w") as zf:
-                    for i, p in enumerate(img_paths, start=1):
-                        im = Image.open(p)
-                        w, h = page_dims_for(im)
-                        doc = fitz.open()
-                        page = doc.new_page(width=w, height=h)
-                        rect = page.rect
-                        rect = fitz.Rect(rect.x0+margin, rect.y0+margin, rect.x1-margin, rect.y1-margin)
-                        page.insert_image(rect, filename=p, keep_proportion=True)
-                        outp = os.path.join(tmpdir, f"img_{i}.pdf")
-                        doc.save(outp); doc.close()
-                        zf.write(outp, f"image_{i}.pdf")
-                mem.seek(0)
-                _download("Download images.zip", mem.getvalue(), "images.zip", "application/zip")
+                else:
+                    mem = io.BytesIO()
+                    with zipfile.ZipFile(mem, "w") as zf:
+                        for i, p in enumerate(img_paths, start=1):
+                            with Image.open(p) as im:
+                                iw, ih = im.size
+                            w_pt, h_pt = _page_dims_pts(iw, ih)
+                            doc = fitz.open()
+                            page = doc.new_page(width=w_pt, height=h_pt)
+                            rect = _target_rect(page.rect, iw, ih)
+                            page.insert_image(
+                                rect,
+                                stream=_image_stream_lossless(p),
+                                keep_proportion=True,
+                                overlay=True
+                            )
+                            outp = os.path.join(tmpdir, f"image_{i}.pdf")
+                            doc.save(outp, deflate=True)
+                            doc.close()
+                            zf.write(outp, f"image_{i}.pdf")
+                    mem.seek(0)
+                    _download("Download images.zip", mem.getvalue(), "images.zip", "application/zip")
 
-            shutil.rmtree(tmpdir, ignore_errors=True)
+            finally:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
 # ---------- Tab 2: Merge PDFs ----------
 with tabs[1]:
     st.subheader("Merge PDFs (with preview and page selection)")
@@ -1091,3 +1165,4 @@ with tabs[14]:
             _download("Download PDFs.zip", mem.getvalue(), "converted_pdfs.zip", "application/zip")
 
         shutil.rmtree(tmpdir, ignore_errors=True)
+
