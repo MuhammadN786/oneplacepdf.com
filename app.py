@@ -84,7 +84,7 @@ with tabs[0]:
     st.subheader("Images → PDF (high quality)")
 
     imgs = st.file_uploader(
-        "Upload images (JPG/PNG, ordered)",
+        "Upload images (JPG/PNG/JPEG)",
         type=["jpg", "jpeg", "png"],
         accept_multiple_files=True
     )
@@ -216,65 +216,165 @@ with tabs[0]:
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
 
-# ---------- Tab 2: Merge PDFs ----------
+# ---------- Tab 2: Merge / Combine PDFs ----------
 with tabs[1]:
-    st.subheader("Merge PDFs (with preview and page selection)")
+    st.subheader("Merge / Combine PDFs")
 
-    pdfs = st.file_uploader("Upload PDFs (any order)", type=["pdf"], accept_multiple_files=True)
+    subtabs = st.tabs(["Merge (Append)", "Combine (Interleave)"])
 
-    if pdfs:
-        st.markdown("### File Options")
+    # ========== MERGE (APPEND) ==========
+    with subtabs[0]:
+        pdfs = st.file_uploader("Upload PDFs (any order)", type=["pdf"], accept_multiple_files=True, key="merge_files")
 
-        merge_data = []
-        for i, uf in enumerate(pdfs, start=1):
-            path = _save_upload(uf, suffix=".pdf")
-            reader = PdfReader(path)
+        if pdfs:
+            st.markdown("### File Options")
 
-            st.markdown(f"**{i}. {uf.name}** ({len(reader.pages)} pages)")
-            thumb = fitz.open(path)[0].get_pixmap(dpi=40).tobytes("png")
-            st.image(thumb, caption=f"Preview {uf.name}", width=120)
+            merge_data = []
+            for i, uf in enumerate(pdfs, start=1):
+                path = _save_upload(uf, suffix=".pdf")
+                reader = PdfReader(path)
 
-            include = st.checkbox(f"Include {uf.name}", value=True, key=f"inc_{i}")
-            ranges = st.text_input(f"Pages to include (blank = all)", key=f"rng_{i}")
-            order = st.number_input(f"Order position", min_value=1, max_value=len(pdfs), value=i, key=f"ord_{i}")
+                st.markdown(f"**{i}. {uf.name}** ({len(reader.pages)} pages)")
+                try:
+                    thumb = fitz.open(path)[0].get_pixmap(dpi=40).tobytes("png")
+                    st.image(thumb, caption=f"Preview {uf.name}", width=120)
+                except Exception:
+                    pass
 
-            merge_data.append({
-                "name": uf.name,
-                "path": path,
-                "include": include,
-                "ranges": ranges,
-                "order": order
-            })
+                include = st.checkbox(f"Include {uf.name}", value=True, key=f"merge_inc_{i}")
+                ranges = st.text_input("Pages to include (blank = all)", key=f"merge_rng_{i}")
+                order = st.number_input("Order position", min_value=1, max_value=len(pdfs), value=i, key=f"merge_ord_{i}")
 
-        # Sort by order input
-        merge_data = sorted(merge_data, key=lambda x: x["order"])
+                merge_data.append({
+                    "name": uf.name,
+                    "path": path,
+                    "include": include,
+                    "ranges": ranges,
+                    "order": order
+                })
 
-        st.markdown("---")
-        st.markdown("### Merge Options")
-        add_bookmarks = st.checkbox("Add bookmarks by file name", value=True)
+            # Sort by order input
+            merge_data = sorted(merge_data, key=lambda x: x["order"])
 
-        if st.button("Merge Now"):
-            writer = PdfWriter()
+            st.markdown("---")
+            st.markdown("### Merge Options")
+            add_bookmarks = st.checkbox("Add bookmarks by file name", value=True, key="merge_bm")
 
-            for item in merge_data:
-                if not item["include"]:
-                    continue
-                r = PdfReader(item["path"])
-                total = len(r.pages)
-                idxs = _parse_ranges(item["ranges"], total) if item["ranges"].strip() else list(range(total))
+            if st.button("Merge Now"):
+                writer = PdfWriter()
 
-                if add_bookmarks:
-                    parent = writer.add_outline_item(item["name"], 0, 0)  # root bookmark for file
+                for item in merge_data:
+                    if not item["include"]:
+                        continue
+                    r = PdfReader(item["path"])
+                    total = len(r.pages)
+                    idxs = _parse_ranges(item["ranges"], total) if item["ranges"].strip() else list(range(total))
 
-                for j, pg_idx in enumerate(idxs):
-                    pg = r.pages[pg_idx]
-                    writer.add_page(pg)
+                    parent = None
                     if add_bookmarks:
-                        writer.add_outline_item(f"Page {pg_idx+1}", len(writer.pages)-1, 0, parent)
+                        # bookmark to the first page *after* existing ones
+                        parent = writer.add_outline_item(item["name"], max(len(writer.pages), 0), 0)
 
-            out = io.BytesIO()
-            writer.write(out)
-            _download("Download merged.pdf", out.getvalue(), "merged.pdf", "application/pdf")
+                    for pg_idx in idxs:
+                        writer.add_page(r.pages[pg_idx])
+
+                out = io.BytesIO()
+                writer.write(out)
+                _download("Download merged.pdf", out.getvalue(), "merged.pdf", "application/pdf")
+
+    # ========== COMBINE (INTERLEAVE) ==========
+    with subtabs[1]:
+        pdfs_c = st.file_uploader(
+            "Upload 2–10 PDFs to interleave (A, B, C…)",
+            type=["pdf"], accept_multiple_files=True, key="combine_files"
+        )
+
+        if pdfs_c:
+            st.markdown("### Configure each file")
+            combine_rows = []
+            for i, uf in enumerate(pdfs_c, start=1):
+                path = _save_upload(uf, suffix=".pdf")
+                r = PdfReader(path)
+                col1, col2, col3, col4 = st.columns([3, 3, 2, 2])
+                with col1:
+                    st.write(f"**{i}. {uf.name}** — {len(r.pages)} pages")
+                with col2:
+                    rng = st.text_input("Pages (blank=all)", key=f"cmb_rng_{i}")
+                with col3:
+                    chunk = st.number_input("Chunk size", min_value=1, max_value=10, value=1, key=f"cmb_chunk_{i}")
+                with col4:
+                    order = st.number_input("Order", min_value=1, max_value=len(pdfs_c), value=i, key=f"cmb_ord_{i}")
+
+                combine_rows.append({
+                    "name": uf.name,
+                    "path": path,
+                    "total": len(r.pages),
+                    "ranges": rng,
+                    "chunk": int(chunk),
+                    "order": int(order)
+                })
+
+            # Sort by chosen order
+            combine_rows = sorted(combine_rows, key=lambda x: x["order"])
+
+            st.markdown("---")
+            st.markdown("### Combine Options")
+            loop_until_all = st.checkbox("Keep interleaving until all selected pages are exhausted", value=True, key="cmb_loop")
+            add_bmarks    = st.checkbox("Add top-level bookmarks per file", value=True, key="cmb_bm")
+
+            if st.button("Combine Now"):
+                # Build page queues per file according to ranges
+                queues = []
+                for row in combine_rows:
+                    r = PdfReader(row["path"])
+                    idxs = _parse_ranges(row["ranges"], row["total"]) if row["ranges"].strip() else list(range(row["total"]))
+                    queues.append({
+                        "name": row["name"],
+                        "reader": r,
+                        "pages": idxs[:],  # queue of page indices
+                        "chunk": row["chunk"]
+                    })
+
+                writer = PdfWriter()
+
+                # Optional bookmarks (record the first output index for each file once it appears)
+                first_out_index_for_file = {q["name"]: None for q in queues}
+
+                # Interleave
+                while True:
+                    progress_any = False
+                    for q in queues:
+                        if not q["pages"]:
+                            continue
+                        progress_any = True
+
+                        # Where the first page of this file lands (bookmark anchor)
+                        if add_bmarks and first_out_index_for_file[q["name"]] is None:
+                            first_out_index_for_file[q["name"]] = len(writer.pages)
+
+                        take = min(q["chunk"], len(q["pages"]))
+                        for _ in range(take):
+                            pg_idx = q["pages"].pop(0)
+                            writer.add_page(q["reader"].pages[pg_idx])
+
+                    if not loop_until_all:
+                        # Only one pass across files
+                        break
+
+                    if not progress_any:
+                        # All queues empty
+                        break
+
+                # Add top-level bookmarks if requested
+                if add_bmarks:
+                    for q in queues:
+                        anchor = first_out_index_for_file.get(q["name"])
+                        if anchor is not None:
+                            writer.add_outline_item(q["name"], anchor, 0)
+
+                out = io.BytesIO()
+                writer.write(out)
+                _download("Download combined.pdf", out.getvalue(), "combined.pdf", "application/pdf")
 
 # ---------- Tab 3: Split PDF ----------
 with tabs[2]:
@@ -1150,5 +1250,6 @@ with tabs[14]:
             _download("Download PDFs.zip", mem.getvalue(), "converted_pdfs.zip", "application/zip")
 
         shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 
