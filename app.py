@@ -9,7 +9,6 @@ from pypdf import PdfWriter, PdfReader
 import fitz  # PyMuPDF
 import pikepdf  # for unlocking protected PDFs
 import pandas as pd
-import camelot
 
 # ---- Page config / branding ----
 st.set_page_config(
@@ -630,4 +629,5 @@ with tab_pdf2xls:
                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         except Exception as e:
             st.error(f"Extraction failed: {e}")
+
 
