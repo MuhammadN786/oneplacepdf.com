@@ -19,10 +19,22 @@ st.set_page_config(
 )
 
 # (Optional) hide Streamlit's deploy toolbar to keep UI clean
-st.markdown("<style>[data-testid='stToolbar']{visibility:hidden;height:0}</style>", unsafe_allow_html=True)
+# Replace st.title(...) / st.caption(...) with:
+st.markdown(
+    """
+    <div style="text-align:center; margin-top:8px;">
+      <h1 style="margin-bottom:6px;">OnePlacePDF</h1>
+      <p style="margin-top:0;color:#64748b;">
+        Merge, split, compress, sign & convert — fast and private.
+      </p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # App title + tagline
-st.title("OnePlacePDF")
+st.title("OnePlacePDF — Edit Any PDF in One Place")
 st.caption("Merge, split, compress, sign & convert — fast and private.")
 
 
@@ -635,5 +647,6 @@ with tab_office:
                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             except Exception as e:
                 st.error(f"Extraction failed: {e}")
+
 
 
