@@ -948,9 +948,9 @@ if route == "help":
     st.header("Help & Tips")
     st.markdown("""
     - Free tier limit: **25 MB per file** and ~**200 pages** for heavy ops.
-    - For password‑locked PDFs: use **Unlock** with the correct current password first.
     - **Redaction** here is literal text search. For case/regex/whole‑word, export to Word and redact there, or run multiple passes.
     - **Batch** jobs can take time; download the ZIP once done.
     - We never retain files longer than **2 hours**.
     """)
+
 
