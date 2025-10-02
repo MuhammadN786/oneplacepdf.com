@@ -949,7 +949,3 @@ if route == "help":
     st.markdown("""
     - Free tier limit: **25 MB per file** and ~**200 pages** for heavy ops.
     - We never retain files longer than **2 hours**.
-    """)
-
-
-
