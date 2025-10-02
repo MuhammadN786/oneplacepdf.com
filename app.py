@@ -17,7 +17,7 @@ import pandas as pd
 # Optional/soft deps used in specific features; guarded where used
 # - pdf2docx
 # - camelot, openpyxl
-# - pytesseract, reportlab
+# - pytesseract
 # - streamlit_drawable_canvas
 
 # -------------------------------------------------------------------------------------
@@ -344,34 +344,38 @@ if route == "organize":
         if total > FREE_PAGE_CAP:
             st.warning(f"Large file detected ({total} pages). Some operations may be slow.")
         thumbs = render_thumbs(pdf_bytes)
+
         import streamlit.components.v1 as components
         items = "".join([f"<div class='item' data-i='{t['index']}'><img src='{t['src']}'/></div>" for t in thumbs])
-        html = f"""
+
+        # Brace-safe HTML/JS (no f-string) with placeholder replacement
+        html = """
         <style>
-         .grid{{display:grid;grid-template-columns:repeat(auto-fill, minmax(160px,1fr));gap:10px}}
-         .item{{border:1px solid #e5e7eb;border-radius:10px;padding:6px;background:#fff}}
-         .item img{{width:100%;height:auto;border-radius:8px}}
-         .item{{cursor:grab}}
+         .grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(160px,1fr));gap:10px}
+         .item{border:1px solid #e5e7eb;border-radius:10px;padding:6px;background:#fff}
+         .item img{width:100%;height:auto;border-radius:8px}
+         .item{cursor:grab}
         </style>
-        <div id="grid" class="grid">{items}</div>
+        <div id="grid" class="grid">{ITEMS}</div>
         <script>
           const grid = document.getElementById('grid');
-          let drag=null;
-          grid.querySelectorAll('.item').forEach(el=>{
-            el.draggable=true;
-            el.addEventListener('dragstart', e=>{{drag=el;}});
-            el.addEventListener('dragover', e=>e.preventDefault());
-            el.addEventListener('drop', e=>{{
+          let drag = null;
+          grid.querySelectorAll('.item').forEach(el => {
+            el.draggable = true;
+            el.addEventListener('dragstart', e => { drag = el; });
+            el.addEventListener('dragover', e => e.preventDefault());
+            el.addEventListener('drop', e => {
               e.preventDefault();
-              if(drag && drag!==el){{
+              if (drag && drag !== el) {
                 grid.insertBefore(drag, el);
-                const order=[...grid.children].map(el=>el.dataset.i);
-                window.parent.postMessage({{type:'order', order}}, '*');
-              }}
-            }});
+                const order = [...grid.children].map(el => el.dataset.i);
+                window.parent.postMessage({type:'order', order}, '*');
+              }
+            });
           });
         </script>
-        """
+        """.replace("{ITEMS}", items)
+
         components.html(html, height=520, scrolling=True)
 
         order_str = st.query_params.get("order")
@@ -472,7 +476,7 @@ if route == "split":
             if not outlines:
                 st.info("No bookmarks found.")
             else:
-                # Placeholder: split by single pages (robust fallback)
+                # Placeholder: split by page (robust fallback)
                 st.caption("Top-level bookmarks detected; exporting per-page sections as a simple fallback.")
                 zbuf = io.BytesIO()
                 with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -690,10 +694,14 @@ if route == "redact":
     if base_pdf and query and st.button("Apply"):
         data = enforce_free_limit(base_pdf)
         doc = fitz.open(stream=data, filetype="pdf")
-        flags = 0 if case_sens else getattr(fitz, "TEXT_IGNORECASE", 0)
+        # PyMuPDF doesn't cleanly expose case-insensitive search in all versions:
+        # for simple support, try a few case variants if not case sensitive.
+        queries = [query] if case_sens else list({query, query.lower(), query.upper(), query.title()})
         hits = 0
         for page in doc:
-            rects = page.search_for(query, flags=flags) or []
+            rects = []
+            for q in queries:
+                rects.extend(page.search_for(q) or [])
             for r in rects:
                 hits += 1
                 if action.startswith("Redact"):
