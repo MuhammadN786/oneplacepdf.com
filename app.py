@@ -941,11 +941,3 @@ if route == "batch":
         zbuf.seek(0)
         st.download_button("⬇️ batch.zip", zbuf.getvalue(), "processed_bundle.zip", "application/zip")
 
-# -------------------------------------------------------------------------------------
-# Help route (simple)
-# -------------------------------------------------------------------------------------
-if route == "help":
-    st.header("Help & Tips")
-    st.markdown("""
-    - Free tier limit: **25 MB per file** and ~**200 pages** for heavy ops.
-    - We never retain files longer than **2 hours**.
