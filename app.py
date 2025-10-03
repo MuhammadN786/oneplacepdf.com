@@ -621,222 +621,42 @@ with tabs[5]:
             except ImportError:
                 st.info("Install `python-docx` to enable DOCX export: pip install python-docx")
 # ---------- Tab 7: Edit (Pro) ----------
-# Requires: streamlit-drawable-canvas==0.9.3 (or similar)
-try:
-    from streamlit_drawable_canvas import st_canvas
-except Exception as e:
-    st.error("Interactive editor requires 'streamlit-drawable-canvas'. "
-             "Add it to requirements.txt and redeploy. Details: " + str(e))
-    st.stop()
-
-import base64
-
-def _pil_to_data_url(img: Image.Image, fmt: str = "PNG") -> str:
-    """Return a data:image/...;base64, URL for the given PIL image."""
-    buf = io.BytesIO()
-    img.save(buf, format=fmt, optimize=True)
-    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-    return f"data:image/{fmt.lower()};base64,{b64}"
-
 with tabs[6]:
     st.subheader("Edit PDF — Pro (Interactive)")
 
     pdf = st.file_uploader("Upload PDF", type=["pdf"], key="edit_pro")
     if pdf:
-        path = _save_upload(pdf, suffix=".pdf")
-        base_doc = fitz.open(path)
+        st.success(f"Uploaded: {pdf.name}")
 
         subtabs = st.tabs([
-            "Pages", "Visual Edit", "Annotations", "Media", "Links & Signatures"
+            "Pages", "Visual Edit", "Annotations", "Media", 
+            "Links & Signatures", "Scanned PDF Editor"
         ])
 
-        # ---- Pages ----
         with subtabs[0]:
-            st.markdown("### Page Management (coming soon)")
-            st.info("Delete, reorder, rotate, crop, and insert pages will be available later.")
+            st.markdown("### Page Management")
+            st.info("Coming soon...")
 
-        # ---- Visual Edit ----
         with subtabs[1]:
-            st.markdown("### Interactive Editing")
+            st.markdown("### Visual Edit")
+            st.info("Coming soon...")
 
-            total_pages = len(base_doc)
-            pgnum = st.number_input("Select page", 1, total_pages, 1, key="edit_page")
-
-            # Render chosen page as background image @ preview DPI
-            preview_dpi = st.slider("Preview DPI (only affects the editor background)", 120, 300, 200)
-            page = base_doc[pgnum - 1]
-            pix = page.get_pixmap(dpi=int(preview_dpi), alpha=False)
-            bg_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
-            # --- FIX: use data URL instead of background_image to avoid image_to_url error
-            bg_data_url = _pil_to_data_url(bg_img, fmt="PNG")
-
-            # Tools / options
-            colA, colB, colC, colD = st.columns(4)
-            with colA:
-                tool = st.selectbox(
-                    "Tool",
-                    ["Move/Select", "Text", "Rectangle", "Free Draw", "Signature Stamp"]
-                )
-            with colB:
-                text_val = st.text_input("Text (for Text tool)", "Edit me")
-                font_size = st.slider("Font size (pt)", 8, 72, 18)
-            with colC:
-                color_hex = st.color_picker("Color", "#000000")
-                opacity = st.slider("Opacity (%)", 10, 100, 90)
-            with colD:
-                stroke_w = st.slider("Stroke width", 1, 10, 2)
-
-            rect_mode = st.radio(
-                "Rectangle mode", ["Whiteout (filled)", "Outline (no fill)"], horizontal=True
-            )
-            sig_img = st.file_uploader(
-                "Upload signature (PNG/JPG) — used by Signature Stamp",
-                type=["png", "jpg", "jpeg"],
-                key="sig"
-            )
-
-            rgb = tuple(int(color_hex[i:i+2], 16) / 255 for i in (1, 3, 5))
-            rgba_css = f"rgba({int(rgb[0]*255)},{int(rgb[1]*255)},{int(rgb[2]*255)},{opacity/100})"
-
-            # Map canvas px -> PDF points
-            page_rect = page.rect
-            sx = page_rect.width / max(1, bg_img.width)
-            sy = page_rect.height / max(1, bg_img.height)
-
-            def px_rect_to_pt(obj):
-                x0 = obj.get("left", 0) * sx
-                y0 = obj.get("top", 0) * sy
-                x1 = (obj.get("left", 0) + obj.get("width", 0)) * sx
-                y1 = (obj.get("top", 0) + obj.get("height", 0)) * sy
-                return fitz.Rect(x0, y0, x1, y1)
-
-            def px_point_to_pt(x_px, y_px):
-                return x_px * sx, y_px * sy
-
-            drawing_mode = (
-                "transform" if tool == "Move/Select" else
-                "text"      if tool == "Text" else
-                "rect"      if tool == "Rectangle" else
-                "freedraw"
-            )
-
-            # Canvas (using background_image_url)
-            canvas_result = st_canvas(
-                fill_color=rgba_css,
-                stroke_width=stroke_w,
-                stroke_color=rgba_css,
-                background_image_url=bg_data_url,
-                update_streamlit=True,
-                height=bg_img.height,
-                width=bg_img.width,
-                drawing_mode=drawing_mode,
-                key="canvas_pdf_edit",
-                display_toolbar=True,
-            )
-
-            st.caption("Draw/place items. Click **Apply Edits to PDF** to write them into the file.")
-
-            if st.button("Apply Edits to PDF"):
-                objs = (canvas_result.json_data or {}).get("objects", [])
-                doc2 = fitz.open(path)
-                p = doc2[pgnum - 1]
-
-                last_rect_for_signature = None
-
-                for obj in objs:
-                    otype = obj.get("type")
-
-                    # --- Text ---
-                    if otype in ("textbox", "i-text", "text"):
-                        txt = (obj.get("text") or text_val).strip()
-                        if not txt:
-                            continue
-                        x_pt, y_pt = px_point_to_pt(obj.get("left", 0), obj.get("top", 0))
-                        p.insert_text(
-                            (x_pt, y_pt + float(font_size)),
-                            txt,
-                            fontsize=float(font_size),
-                            color=rgb,
-                            fill_opacity=opacity / 100,
-                            render_mode=0,
-                            overlay=True
-                        )
-
-                    # --- Rectangles ---
-                    elif otype == "rect":
-                        r = px_rect_to_pt(obj)
-                        last_rect_for_signature = r
-                        if rect_mode.startswith("Whiteout"):
-                            p.draw_rect(r, color=rgb, fill=rgb, fill_opacity=opacity / 100,
-                                        width=0, overlay=True)
-                        else:
-                            p.draw_rect(r, color=rgb, width=max(stroke_w, 1), overlay=True)
-
-                    # --- Free draw paths ---
-                    elif otype == "path":
-                        path_cmds = obj.get("path", [])
-                        if not path_cmds:
-                            continue
-                        pts = []
-                        left_px = obj.get("left", 0); top_px = obj.get("top", 0)
-                        for cmd in path_cmds:
-                            if cmd and cmd[0] in ("M", "L") and len(cmd) >= 3:
-                                x_pt, y_pt = px_point_to_pt(left_px + float(cmd[1]),
-                                                            top_px + float(cmd[2]))
-                                pts.append((x_pt, y_pt))
-                        for a, b in zip(pts, pts[1:]):
-                            p.draw_line(a, b, color=rgb, width=max(stroke_w, 1), overlay=True)
-
-                # --- Signature placement ---
-                if sig_img:
-                    try:
-                        sig = Image.open(sig_img)
-                        if last_rect_for_signature is None:
-                            w = page_rect.width * 0.35
-                            h = w * (sig.height / max(1, sig.width))
-                            cx = page_rect.x0 + page_rect.width * 0.5
-                            cy = page_rect.y0 + page_rect.height * 0.8
-                            last_rect_for_signature = fitz.Rect(
-                                cx - w/2, cy - h/2, cx + w/2, cy + h/2
-                            )
-                        buf = io.BytesIO()
-                        sig.save(buf, format="PNG", optimize=True)
-                        p.insert_image(last_rect_for_signature, stream=buf.getvalue(),
-                                       keep_proportion=True, overlay=True)
-                    except Exception as e:
-                        st.warning(f"Signature placement skipped: {e}")
-
-                out = io.BytesIO()
-                doc2.save(out, deflate=True, clean=True, garbage=3)
-                _download("Download edited.pdf", out.getvalue(),
-                          "edited.pdf", "application/pdf")
-                st.success("✅ Edits applied.")
-
-        # ---- Annotations ----
         with subtabs[2]:
-            st.markdown("### Quick Annotations")
-            st.info("Highlight, notes, and shapes will be merged into the Visual Edit tool soon.")
+            st.markdown("### Annotations")
+            st.info("Coming soon...")
 
-        # ---- Media ----
         with subtabs[3]:
-            st.markdown("### Insert Images (simple)")
-            st.info("Use the 'Signature Stamp' in Visual Edit to position images precisely.")
+            st.markdown("### Media")
+            st.info("Coming soon...")
 
-        # ---- Links & Signatures ----
         with subtabs[4]:
-            st.markdown("### Hyperlinks & Signatures")
-            pgnum_link = st.number_input("Page", 1, len(base_doc), 1, key="linkpg")
-            link = st.text_input("Hyperlink (https://example.com)")
-            if link and st.button("Insert Link"):
-                page_link = base_doc[pgnum_link - 1]
-                rect = fitz.Rect(72, 72, 200, 100)
-                page_link.insert_link({"kind": fitz.LINK_URI, "from": rect, "uri": link})
-                out = io.BytesIO()
-                base_doc.save(out, deflate=True, clean=True, garbage=3)
-                _download("Download with link.pdf", out.getvalue(),
-                          "with_link.pdf", "application/pdf")
-                st.success("Inserted link placeholder.")
+            st.markdown("### Links & Signatures")
+            st.info("Coming soon...")
+
+        with subtabs[5]:
+            st.markdown("### Scanned PDF Editor")
+            st.info("Coming soon...")
+
 # ---------- Tab 9: Protect PDF ----------
 with tabs[8]:
     st.subheader("Protect PDF (Password + Permissions)")
@@ -1322,6 +1142,7 @@ with tabs[14]:
             _download("Download PDFs.zip", mem.getvalue(), "converted_pdfs.zip", "application/zip")
 
         shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 
 
