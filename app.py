@@ -621,81 +621,136 @@ with tabs[5]:
             except ImportError:
                 st.info("Install `python-docx` to enable DOCX export: pip install python-docx")
 # ---------- Tab 7: Edit (Pro) ----------
+from streamlit_drawable_canvas import st_canvas
+
 with tabs[6]:
-    st.subheader("Edit PDF — Advanced")
+    st.subheader("Edit PDF — Pro (Interactive)")
 
     pdf = st.file_uploader("Upload PDF", type=["pdf"], key="edit_pro")
     if pdf:
         path = _save_upload(pdf, suffix=".pdf")
         doc = fitz.open(path)
 
-        subtabs = st.tabs(["Pages", "Text & Whiteout", "Annotations", "Media", "Links & Signatures"])
+        subtabs = st.tabs(["Pages", "Visual Edit", "Annotations", "Media", "Links & Signatures"])
 
         # ---- Pages ----
         with subtabs[0]:
-            st.markdown("### Page Management")
-            # (delete, reorder, rotate, crop, insert page from another PDF)
+            st.markdown("### Page Management (coming soon)")
+            st.info("Delete, reorder, rotate, crop, and insert pages will be available in the Premium version.")
 
-        # ---- Text & Whiteout ----
+        # ---- Visual Edit ----
         with subtabs[1]:
-            st.markdown("### Add/Edit Text, Whiteout")
-            pgnum = st.number_input("Select page", 1, len(doc), 1)
-            text = st.text_area("Text to insert")
-            color = st.color_picker("Text color", "#000000")
-            size = st.slider("Font size", 8, 48, 12)
-            if st.button("Insert Text"):
-                page = doc[pgnum-1]
-                rect = page.rect
-                page.insert_text((72, 72), text, fontsize=size,
-                                 color=tuple(int(color[i:i+2],16)/255 for i in (1,3,5)))
-            if st.button("Apply Whiteout (clear full page)"):
-                page = doc[pgnum-1]
-                page.add_redact_annot(page.rect, fill=(1,1,1))
-                page.apply_redactions()
+            st.markdown("### Interactive Editing")
+            total_pages = len(doc)
+            pgnum = st.number_input("Select page", 1, total_pages, 1, key="edit_page")
+            page = doc[pgnum-1]
+
+            # Render PDF page
+            pix = page.get_pixmap(dpi=200, alpha=False)
+            bg_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+            # Tools
+            tool = st.selectbox("Tool", ["Move/Select", "Text", "Rectangle (whiteout/highlight)", "Free Draw", "Signature Stamp"])
+            text_val = st.text_input("Text (for Text tool)", "Edit me")
+            font_size = st.slider("Font size", 8, 72, 18)
+            color_hex = st.color_picker("Color", "#000000")
+            opacity = st.slider("Opacity (%)", 10, 100, 90)
+            stroke_w = st.slider("Stroke width (for lines)", 1, 10, 2)
+            sig_img = st.file_uploader("Upload signature (PNG/JPG)", type=["png","jpg","jpeg"], key="sig")
+
+            rgb = tuple(int(color_hex[i:i+2], 16)/255 for i in (1,3,5))
+
+            drawing_mode = "transform" if tool == "Move/Select" else \
+                           "text" if tool == "Text" else \
+                           "rect" if tool.startswith("Rectangle") else \
+                           "freedraw"
+
+            # Canvas
+            canvas_result = st_canvas(
+                fill_color=f"rgba({int(rgb[0]*255)},{int(rgb[1]*255)},{int(rgb[2]*255)},{opacity/100})",
+                stroke_width=stroke_w,
+                stroke_color=f"rgba({int(rgb[0]*255)},{int(rgb[1]*255)},{int(rgb[2]*255)},{opacity/100})",
+                background_image=bg_img,
+                update_streamlit=True,
+                height=bg_img.height,
+                width=bg_img.width,
+                drawing_mode=drawing_mode,
+                key="canvas_pdf_edit",
+                display_toolbar=True,
+            )
+
+            # Apply edits
+            if st.button("Apply Edits to PDF"):
+                objs = (canvas_result.json_data or {}).get("objects", [])
+                doc2 = fitz.open(path)
+                p = doc2[pgnum-1]
+
+                for obj in objs:
+                    otype = obj.get("type")
+                    if otype in ("textbox","i-text","text") and tool == "Text":
+                        x, y = obj["left"], obj["top"]
+                        txt = (obj.get("text") or text_val).strip()
+                        if txt:
+                            p.insert_text(
+                                (x, y+font_size),
+                                txt,
+                                fontsize=font_size,
+                                color=rgb,
+                                overlay=True
+                            )
+                    elif otype == "rect":
+                        rect = fitz.Rect(obj["left"], obj["top"], obj["left"]+obj["width"], obj["top"]+obj["height"])
+                        p.draw_rect(rect, color=rgb, fill=rgb, fill_opacity=opacity/100, overlay=True)
+                    elif otype == "path":
+                        pts = []
+                        for cmd in obj.get("path", []):
+                            if cmd[0] in ("M","L") and len(cmd) >= 3:
+                                pts.append((obj["left"]+float(cmd[1]), obj["top"]+float(cmd[2])))
+                        for a,b in zip(pts, pts[1:]):
+                            p.draw_line(a,b,color=rgb,width=stroke_w,overlay=True)
+
+                # If signature uploaded and last rect drawn → place image
+                if sig_img and objs:
+                    rect_objs = [o for o in objs if o.get("type")=="rect"]
+                    if rect_objs:
+                        r = rect_objs[-1]
+                        rect = fitz.Rect(r["left"], r["top"], r["left"]+r["width"], r["top"]+r["height"])
+                        sig = Image.open(sig_img)
+                        buf = io.BytesIO()
+                        sig.save(buf, format="PNG")
+                        p.insert_image(rect, stream=buf.getvalue(), overlay=True)
+
+                out = io.BytesIO()
+                doc2.save(out, deflate=True)
+                _download("Download edited.pdf", out.getvalue(), "edited.pdf", "application/pdf")
+                st.success("✅ Edits applied.")
 
         # ---- Annotations ----
         with subtabs[2]:
-            st.markdown("### Highlight, Shapes, Notes")
-            pgnum = st.number_input("Page (for annotation)", 1, len(doc), 1, key="annpg")
-            page = doc[pgnum-1]
-            if st.button("Highlight top half"):
-                rect = fitz.Rect(page.rect.x0, page.rect.y0, page.rect.x1, page.rect.y1/2)
-                page.add_highlight_annot(rect)
-            if st.button("Add sticky note"):
-                page.add_text_annot((72,72), "Comment here")
+            st.markdown("### Quick Annotations")
+            st.info("Highlight, notes, and shapes will be merged into the Visual Edit tool soon.")
 
         # ---- Media ----
         with subtabs[3]:
-            st.markdown("### Insert Images")
-            pgnum = st.number_input("Page (insert image)", 1, len(doc), 1, key="imgpg")
-            img = st.file_uploader("Upload image", type=["png","jpg"])
-            if img and st.button("Insert Image"):
-                p = _save_upload(img)
-                page = doc[pgnum-1]
-                rect = fitz.Rect(100,100,300,300)
-                page.insert_image(rect, filename=p)
+            st.markdown("### Insert Images (simple)")
+            st.info("Use the Visual Edit tab with Signature/Image tool for better placement.")
 
         # ---- Links & Signatures ----
         with subtabs[4]:
-            st.markdown("### Hyperlinks and Signatures")
+            st.markdown("### Hyperlinks & Signatures")
             pgnum = st.number_input("Page", 1, len(doc), 1, key="linkpg")
-            link = st.text_input("Hyperlink (e.g. https://example.com)")
+            link = st.text_input("Hyperlink (https://example.com)")
             if link and st.button("Insert Link"):
                 page = doc[pgnum-1]
                 rect = fitz.Rect(72,72,200,100)
                 page.insert_link({"kind":fitz.LINK_URI,"from":rect,"uri":link})
+                st.success("Inserted link placeholder (rect at top-left).")
 
-            sig = st.file_uploader("Upload signature (PNG with transparency)", type=["png"])
-            if sig and st.button("Insert Signature"):
-                p = _save_upload(sig)
-                page = doc[pgnum-1]
-                rect = fitz.Rect(100,500,300,650)
-                page.insert_image(rect, filename=p)
-
-        if st.button("Save Edited PDF"):
+        if st.button("Save Edited PDF (Finalize)"):
             out = io.BytesIO()
             doc.save(out, deflate=True)
             _download("Download edited.pdf", out.getvalue(), "edited.pdf", "application/pdf")
+
 # ---------- Tab 8: Compress PDF ----------
 with tabs[7]:
     st.subheader("Compress PDF")
@@ -1250,6 +1305,7 @@ with tabs[14]:
             _download("Download PDFs.zip", mem.getvalue(), "converted_pdfs.zip", "application/zip")
 
         shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 
 
