@@ -96,7 +96,18 @@ def adsense(client_id: str, slot_id: str, *, height: int = 120, style: str = "di
     # Reserve some vertical space so layout doesn't jump
     components.html(html, height=height)
 
-
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6839950833502659"
+     crossorigin="anonymous"></script>
+<!-- OnePlacePDF Header -->
+<ins class="adsbygoogle"
+     style="display:block"
+     data-ad-client="ca-pub-6839950833502659"
+     data-ad-slot="3025573109"
+     data-ad-format="auto"
+     data-full-width-responsive="true"></ins>
+<script>
+     (adsbygoogle = window.adsbygoogle || []).push({});
+</script>
 # ============================
 # Utilities (quality-focused)
 # ============================
@@ -1342,7 +1353,18 @@ adsense(
     ad_format="auto",
     full_width=True
 )
-
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6839950833502659"
+     crossorigin="anonymous"></script>
+<!-- OnePlacePDF Header -->
+<ins class="adsbygoogle"
+     style="display:block"
+     data-ad-client="ca-pub-6839950833502659"
+     data-ad-slot="3025573109"
+     data-ad-format="auto"
+     data-full-width-responsive="true"></ins>
+<script>
+     (adsbygoogle = window.adsbygoogle || []).push({});
+</script>
 
 st.divider()
 with st.expander("Privacy Policy"):
@@ -1353,6 +1375,7 @@ Learn more: https://policies.google.com/technologies/ads
 We don’t sell personal data. If you contact us, we use your info only to respond.
 Last updated: 2025-10-03
 """)
+
 
 
 
