@@ -14,6 +14,34 @@ from pypdf import PdfReader, PdfWriter
 import fitz  # PyMuPDF
 from PIL import Image
 from pdf2docx import Converter as Pdf2DocxConverter
+import streamlit.components.v1 as components
+
+def adsense(client_id: str, slot_id: str, *, height: int = 120, style: str = "display:block", ad_format: str = "auto", full_width: bool = True):
+    """
+    Render a Google AdSense unit inside Streamlit using an iframe-safe HTML block.
+    - client_id: your 'ca-pub-XXXXXXXXXXXX'
+    - slot_id:   your ad unit slot id, e.g. '1234567890'
+    - height:    pixel height of the iframe reservation box in Streamlit
+    - style:     CSS style for the <ins> (e.g., 'display:block' or fixed sizes)
+    - ad_format: 'auto' for responsive; omit or change if you use fixed sizes
+    - full_width: True adds data-full-width-responsive='true'
+    """
+    responsive_attr = "data-full-width-responsive='true'" if full_width else ""
+    html = f"""
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={client_id}" crossorigin="anonymous"></script>
+    <ins class="adsbygoogle"
+         style="{style}"
+         data-ad-client="{client_id}"
+         data-ad-slot="{slot_id}"
+         data-ad-format="{ad_format}"
+         {responsive_attr}></ins>
+    <script>
+      (adsbygoogle = window.adsbygoogle || []).push({{}});
+    </script>
+    """
+    # Reserve some vertical space so layout doesn't jump
+    components.html(html, height=height)
+
 
 # ============================
 # Utilities (quality-focused)
@@ -72,6 +100,15 @@ def _which_soffice():
 st.set_page_config(page_title="OnePlacePDF — All-in-One PDF Tools", page_icon="📄", layout="wide")
 st.title("OnePlacePDF — All-in-One PDF Tools")
 st.caption("Merge, split, convert & secure — with quality-first processing.")
+adsense(
+    client_id="ca-pub-XXXXXXXXXXXX",   # <- replace
+    slot_id="1111111111",              # <- replace
+    height=120,                        # typical responsive banner height
+    style="display:block",
+    ad_format="auto",
+    full_width=True
+)
+
 
 tabs = st.tabs([
     "Images → PDF", "Merge", "Split", "Rotate", "Re-order", "Extract Text",
@@ -1241,6 +1278,16 @@ with tabs[14]:
             _download("Download PDFs.zip", mem.getvalue(), "converted_pdfs.zip", "application/zip")
 
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+st.divider()
+adsense(
+    client_id="ca-pub-XXXXXXXXXXXX",   # <- replace
+    slot_id="3333333333",              # <- replace
+    height=120,
+    style="display:block",
+    ad_format="auto",
+    full_width=True
+)
 
 
 
