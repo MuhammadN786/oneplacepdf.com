@@ -656,6 +656,105 @@ with tabs[6]:
         with subtabs[5]:
             st.markdown("### Scanned PDF Editor")
             st.info("Coming soon...")
+# ---------- Tab 8: Compress PDF ----------
+with tabs[7]:
+    st.subheader("Compress PDF (quality-first)")
+
+    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="compress_pdf")
+    if pdf:
+        in_bytes = pdf.getbuffer()
+        orig_size = len(in_bytes)
+
+        preset = st.selectbox(
+            "Compression preset",
+            ["Light (best quality)", "Standard", "Strong", "Extreme", "Lossless (no image recompress)"],
+            index=1
+        )
+
+        with st.expander("Advanced options"):
+            quality = st.slider("JPEG quality (when recompressing images)", 50, 95, 85)
+            target_dpi = st.selectbox("Downsample images to (DPI)", [None, 300, 200, 150, 100], index=2,
+                                      help="Only downsamples if an image exceeds its display need.")
+            strip_meta = st.checkbox("Strip document metadata", value=True)
+            linearize = st.checkbox("Linearize for web (Fast Web View)", value=True)
+            clean_xref = st.checkbox("Aggressive clean (garbage=3, clean=True)", value=True)
+
+        # Apply sensible defaults from preset
+        if preset == "Light (best quality)":
+            quality = 90;  target_dpi = target_dpi or 300
+        elif preset == "Standard":
+            quality = 85;  target_dpi = target_dpi or 200
+        elif preset == "Strong":
+            quality = 75;  target_dpi = target_dpi or 150
+        elif preset == "Extreme":
+            quality = 60;  target_dpi = target_dpi or 100
+        elif preset == "Lossless (no image recompress)":
+            target_dpi = None; quality = None
+
+        def _human(n):
+            for u in ["B","KB","MB","GB","TB"]:
+                if n < 1024: return f"{n:.2f} {u}"
+                n /= 1024
+            return f"{n:.2f} PB"
+
+        if st.button("Compress"):
+            src = fitz.open(stream=in_bytes, filetype="pdf")
+
+            if strip_meta:
+                try: src.set_metadata({})
+                except: pass
+
+            # Recompress/downsample embedded images only (keep text/vectors)
+            if quality is not None:
+                for page in src:
+                    imgs = page.get_images(full=True)
+                    if not imgs: continue
+
+                    page_w_in = page.rect.width / 72.0
+                    page_h_in = page.rect.height / 72.0
+
+                    for xref, *_rest in imgs:
+                        try:
+                            info = src.extract_image(xref)
+                            img_bytes = info["image"]
+                            w_px, h_px = info.get("width"), info.get("height")
+                        except Exception:
+                            continue
+
+                        # Determine if downsampling is needed
+                        new_w, new_h = w_px, h_px
+                        if target_dpi:
+                            max_w = int(page_w_in * target_dpi * 1.2 + 0.5)
+                            max_h = int(page_h_in * target_dpi * 1.2 + 0.5)
+                            if w_px > max_w or h_px > max_h:
+                                scale = max(min(min(max_w / w_px, max_h / h_px), 1.0), 0.05)
+                                new_w = max(int(w_px * scale), 1)
+                                new_h = max(int(h_px * scale), 1)
+
+                        try:
+                            pil = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                            if (new_w, new_h) != (w_px, h_px):
+                                pil = pil.resize((new_w, new_h), Image.LANCZOS)
+                            buf = io.BytesIO()
+                            pil.save(buf, format="JPEG", quality=int(quality), optimize=True)
+                            src.update_image(xref, stream=buf.getvalue())
+                        except Exception:
+                            # If recompress fails for a particular image, leave it as-is
+                            pass
+
+            out_buf = io.BytesIO()
+            save_kwargs = dict(deflate=True)
+            if linearize: save_kwargs["linear"] = True
+            if clean_xref: save_kwargs.update(clean=True, garbage=3)
+            src.save(out_buf, **save_kwargs); src.close()
+
+            new_bytes = out_buf.getvalue()
+            new_size = len(new_bytes)
+            saved = max(orig_size - new_size, 0)
+            pct = (saved / orig_size * 100.0) if orig_size else 0.0
+
+            st.success(f"Original: {_human(orig_size)} → Compressed: {_human(new_size)}  (saved {pct:.1f}%)")
+            _download("Download compressed.pdf", new_bytes, "compressed.pdf", "application/pdf")
 
 # ---------- Tab 9: Protect PDF ----------
 with tabs[8]:
@@ -1142,6 +1241,7 @@ with tabs[14]:
             _download("Download PDFs.zip", mem.getvalue(), "converted_pdfs.zip", "application/zip")
 
         shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 
 
