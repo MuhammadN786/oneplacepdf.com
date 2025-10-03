@@ -62,6 +62,13 @@ json_ld_site()
 
 # (Optional) Google Analytics – replace with your GA4 ID like 'G-XXXXXXX'
 ga4("G-XXXXXXX")
+if not st.session_state.get("_adsense_head_loaded"):
+    components.html("""
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6839950833502659"
+        crossorigin="anonymous"></script>
+    """, height=0)
+    st.session_state["_adsense_head_loaded"] = True
+
 
 def adsense(client_id: str, slot_id: str, *, height: int = 120, style: str = "display:block", ad_format: str = "auto", full_width: bool = True):
     """
@@ -1346,6 +1353,7 @@ Learn more: https://policies.google.com/technologies/ads
 We don’t sell personal data. If you contact us, we use your info only to respond.
 Last updated: 2025-10-03
 """)
+
 
 
 
