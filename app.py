@@ -507,7 +507,7 @@ with tabs[3]:
             for i, page in enumerate(doc, start=1):
                 thumb = page.get_pixmap(dpi=50).tobytes("png")
                 with cols[(i-1) % 4]:
-                    st.image(thumb, caption=f"Page {i}", use_column_width=True)
+                    st.image(thumb, caption=f"Page {i}", use_container_width=True)  # <-- changed
                     deg = st.selectbox(
                         f"Rotate Pg {i}", [0, 90, 180, 270], index=0, key=f"rot_{i}"
                     )
@@ -1142,6 +1142,7 @@ with tabs[14]:
             _download("Download PDFs.zip", mem.getvalue(), "converted_pdfs.zip", "application/zip")
 
         shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 
 
