@@ -621,7 +621,13 @@ with tabs[5]:
             except ImportError:
                 st.info("Install `python-docx` to enable DOCX export: pip install python-docx")
 # ---------- Tab 7: Edit (Pro) ----------
-from streamlit_drawable_canvas import st_canvas
+# IMPORTANT: add to requirements.txt -> streamlit-drawable-canvas==0.9.3
+try:
+    from streamlit_drawable_canvas import st_canvas
+except Exception as e:
+    st.error("Interactive editor requires 'streamlit-drawable-canvas'. "
+             "Add it to requirements.txt and redeploy. Details: " + str(e))
+    st.stop()
 
 with tabs[6]:
     st.subheader("Edit PDF — Pro (Interactive)")
@@ -629,47 +635,80 @@ with tabs[6]:
     pdf = st.file_uploader("Upload PDF", type=["pdf"], key="edit_pro")
     if pdf:
         path = _save_upload(pdf, suffix=".pdf")
-        doc = fitz.open(path)
+        base_doc = fitz.open(path)   # keep a base doc open for page count & previews
 
         subtabs = st.tabs(["Pages", "Visual Edit", "Annotations", "Media", "Links & Signatures"])
 
         # ---- Pages ----
         with subtabs[0]:
             st.markdown("### Page Management (coming soon)")
-            st.info("Delete, reorder, rotate, crop, and insert pages will be available in the Premium version.")
+            st.info("Delete, reorder, rotate, crop, and insert pages will be available later.")
 
         # ---- Visual Edit ----
         with subtabs[1]:
             st.markdown("### Interactive Editing")
-            total_pages = len(doc)
-            pgnum = st.number_input("Select page", 1, total_pages, 1, key="edit_page")
-            page = doc[pgnum-1]
 
-            # Render PDF page
-            pix = page.get_pixmap(dpi=200, alpha=False)
+            total_pages = len(base_doc)
+            pgnum = st.number_input("Select page", 1, total_pages, 1, key="edit_page")
+
+            # Render chosen page as background image @ selected preview DPI
+            preview_dpi = st.slider("Preview DPI (only affects the editor background)", 120, 300, 200)
+            page = base_doc[pgnum - 1]
+            pix = page.get_pixmap(dpi=int(preview_dpi), alpha=False)
             bg_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-            # Tools
-            tool = st.selectbox("Tool", ["Move/Select", "Text", "Rectangle (whiteout/highlight)", "Free Draw", "Signature Stamp"])
-            text_val = st.text_input("Text (for Text tool)", "Edit me")
-            font_size = st.slider("Font size", 8, 72, 18)
-            color_hex = st.color_picker("Color", "#000000")
-            opacity = st.slider("Opacity (%)", 10, 100, 90)
-            stroke_w = st.slider("Stroke width (for lines)", 1, 10, 2)
-            sig_img = st.file_uploader("Upload signature (PNG/JPG)", type=["png","jpg","jpeg"], key="sig")
+            # TOOLBAR
+            colA, colB, colC, colD = st.columns(4)
+            with colA:
+                tool = st.selectbox(
+                    "Tool",
+                    ["Move/Select", "Text", "Rectangle", "Free Draw", "Signature Stamp"]
+                )
+            with colB:
+                text_val = st.text_input("Text (for Text tool)", "Edit me")
+                font_size = st.slider("Font size (pt)", 8, 72, 18)
+            with colC:
+                color_hex = st.color_picker("Color", "#000000")
+                opacity = st.slider("Opacity (%)", 10, 100, 90)
+            with colD:
+                stroke_w = st.slider("Stroke width", 1, 10, 2)
 
-            rgb = tuple(int(color_hex[i:i+2], 16)/255 for i in (1,3,5))
+            rect_mode = st.radio("Rectangle mode", ["Whiteout (filled)", "Outline (no fill)"], horizontal=True)
+            sig_img = st.file_uploader("Upload signature (PNG/JPG) — used by Signature Stamp", type=["png", "jpg", "jpeg"], key="sig")
 
-            drawing_mode = "transform" if tool == "Move/Select" else \
-                           "text" if tool == "Text" else \
-                           "rect" if tool.startswith("Rectangle") else \
-                           "freedraw"
+            # Colors
+            rgb = tuple(int(color_hex[i:i+2], 16) / 255 for i in (1, 3, 5))
+            rgba_css = f"rgba({int(rgb[0]*255)},{int(rgb[1]*255)},{int(rgb[2]*255)},{opacity/100})"
+
+            # Map canvas pixels -> PDF points
+            page_rect = page.rect  # in points
+            sx = page_rect.width / max(1, bg_img.width)
+            sy = page_rect.height / max(1, bg_img.height)
+
+            def px_rect_to_pt(obj):
+                """FabricJS rect to fitz.Rect in POINTS (PDF units)."""
+                x0 = obj.get("left", 0) * sx
+                y0 = obj.get("top", 0) * sy
+                x1 = (obj.get("left", 0) + obj.get("width", 0)) * sx
+                y1 = (obj.get("top", 0) + obj.get("height", 0)) * sy
+                return fitz.Rect(x0, y0, x1, y1)
+
+            def px_point_to_pt(x_px, y_px):
+                return x_px * sx, y_px * sy
+
+            # Choose canvas mode
+            drawing_mode = (
+                "transform" if tool == "Move/Select" else
+                "text"      if tool == "Text" else
+                "rect"      if tool == "Rectangle" else
+                "freedraw"  # Free Draw & Signature use free draw/rect for box
+            )
 
             # Canvas
             canvas_result = st_canvas(
-                fill_color=f"rgba({int(rgb[0]*255)},{int(rgb[1]*255)},{int(rgb[2]*255)},{opacity/100})",
+                fill_color=rgba_css,
                 stroke_width=stroke_w,
-                stroke_color=f"rgba({int(rgb[0]*255)},{int(rgb[1]*255)},{int(rgb[2]*255)},{opacity/100})",
+                stroke_color=rgba_css,
                 background_image=bg_img,
                 update_streamlit=True,
                 height=bg_img.height,
@@ -679,49 +718,88 @@ with tabs[6]:
                 display_toolbar=True,
             )
 
+            st.caption("Draw/place items. Click **Apply Edits to PDF** to write them into the file.")
+
             # Apply edits
             if st.button("Apply Edits to PDF"):
                 objs = (canvas_result.json_data or {}).get("objects", [])
+                # Re-open original to write a fresh output
                 doc2 = fitz.open(path)
-                p = doc2[pgnum-1]
+                p = doc2[pgnum - 1]
+
+                # If signature stamp: use the last rectangle or the whole canvas if none
+                last_rect_for_signature = None
 
                 for obj in objs:
                     otype = obj.get("type")
-                    if otype in ("textbox","i-text","text") and tool == "Text":
-                        x, y = obj["left"], obj["top"]
-                        txt = (obj.get("text") or text_val).strip()
-                        if txt:
-                            p.insert_text(
-                                (x, y+font_size),
-                                txt,
-                                fontsize=font_size,
-                                color=rgb,
-                                overlay=True
-                            )
-                    elif otype == "rect":
-                        rect = fitz.Rect(obj["left"], obj["top"], obj["left"]+obj["width"], obj["top"]+obj["height"])
-                        p.draw_rect(rect, color=rgb, fill=rgb, fill_opacity=opacity/100, overlay=True)
-                    elif otype == "path":
-                        pts = []
-                        for cmd in obj.get("path", []):
-                            if cmd[0] in ("M","L") and len(cmd) >= 3:
-                                pts.append((obj["left"]+float(cmd[1]), obj["top"]+float(cmd[2])))
-                        for a,b in zip(pts, pts[1:]):
-                            p.draw_line(a,b,color=rgb,width=stroke_w,overlay=True)
 
-                # If signature uploaded and last rect drawn → place image
-                if sig_img and objs:
-                    rect_objs = [o for o in objs if o.get("type")=="rect"]
-                    if rect_objs:
-                        r = rect_objs[-1]
-                        rect = fitz.Rect(r["left"], r["top"], r["left"]+r["width"], r["top"]+r["height"])
+                    # TEXT
+                    if otype in ("textbox", "i-text", "text"):
+                        # Use object text if present; otherwise the toolbar text
+                        txt = (obj.get("text") or text_val).strip()
+                        if not txt:
+                            continue
+                        # Fabric text top-left → PDF point; baseline adjustment by +font_size
+                        x_pt, y_pt = px_point_to_pt(obj.get("left", 0), obj.get("top", 0))
+                        p.insert_text(
+                            (x_pt, y_pt + font_size),
+                            txt,
+                            fontsize=float(font_size),
+                            color=rgb,
+                            fill_opacity=opacity / 100,
+                            render_mode=0,
+                            overlay=True
+                        )
+
+                    # RECTANGLE (whiteout/highlight OR used as a box for signature)
+                    elif otype == "rect":
+                        r = px_rect_to_pt(obj)
+                        last_rect_for_signature = r  # remember last box user drew
+                        if rect_mode.startswith("Whiteout"):
+                            p.draw_rect(r, color=rgb, fill=rgb, fill_opacity=opacity / 100, width=0, overlay=True)
+                        else:
+                            p.draw_rect(r, color=rgb, width=max(stroke_w, 1), overlay=True)
+
+                    # FREE DRAW (polyline)
+                    elif otype == "path":
+                        path = obj.get("path", [])
+                        if not path:
+                            continue
+                        # Fabric path commands: ['M', x, y], ['L', x, y], ...
+                        pts = []
+                        left_px = obj.get("left", 0)
+                        top_px = obj.get("top", 0)
+                        for cmd in path:
+                            if not cmd:
+                                continue
+                            if cmd[0] in ("M", "L") and len(cmd) >= 3:
+                                x_pt, y_pt = px_point_to_pt(left_px + float(cmd[1]), top_px + float(cmd[2]))
+                                pts.append((x_pt, y_pt))
+                        for a, b in zip(pts, pts[1:]):
+                            p.draw_line(a, b, color=rgb, width=max(stroke_w, 1), overlay=True)
+
+                # Signature stamp: if an image is provided, place it into the last rectangle drawn
+                if sig_img:
+                    try:
                         sig = Image.open(sig_img)
+                        # Use last rectangle if available; else center a reasonable box
+                        if last_rect_for_signature is None:
+                            w = page_rect.width * 0.35
+                            h = w * (sig.height / max(1, sig.width))
+                            cx = page_rect.x0 + page_rect.width * 0.5
+                            cy = page_rect.y0 + page_rect.height * 0.8
+                            last_rect_for_signature = fitz.Rect(cx - w/2, cy - h/2, cx + w/2, cy + h/2)
                         buf = io.BytesIO()
-                        sig.save(buf, format="PNG")
-                        p.insert_image(rect, stream=buf.getvalue(), overlay=True)
+                        # keep transparency if PNG; PyMuPDF handles alpha
+                        fmt = "PNG" if sig.mode in ("RGBA", "LA") else "PNG"
+                        sig.save(buf, format=fmt, optimize=True)
+                        p.insert_image(last_rect_for_signature, stream=buf.getvalue(), keep_proportion=True, overlay=True)
+                    except Exception as e:
+                        st.warning(f"Signature placement skipped: {e}")
 
                 out = io.BytesIO()
-                doc2.save(out, deflate=True)
+                # Use clean=True/garbage=3 to compact xref after edits
+                doc2.save(out, deflate=True, clean=True, garbage=3)
                 _download("Download edited.pdf", out.getvalue(), "edited.pdf", "application/pdf")
                 st.success("✅ Edits applied.")
 
@@ -733,23 +811,22 @@ with tabs[6]:
         # ---- Media ----
         with subtabs[3]:
             st.markdown("### Insert Images (simple)")
-            st.info("Use the Visual Edit tab with Signature/Image tool for better placement.")
+            st.info("Use the 'Signature Stamp' in Visual Edit to position images precisely.")
 
         # ---- Links & Signatures ----
         with subtabs[4]:
             st.markdown("### Hyperlinks & Signatures")
-            pgnum = st.number_input("Page", 1, len(doc), 1, key="linkpg")
+            pgnum_link = st.number_input("Page", 1, len(base_doc), 1, key="linkpg")
             link = st.text_input("Hyperlink (https://example.com)")
             if link and st.button("Insert Link"):
-                page = doc[pgnum-1]
-                rect = fitz.Rect(72,72,200,100)
-                page.insert_link({"kind":fitz.LINK_URI,"from":rect,"uri":link})
-                st.success("Inserted link placeholder (rect at top-left).")
-
-        if st.button("Save Edited PDF (Finalize)"):
-            out = io.BytesIO()
-            doc.save(out, deflate=True)
-            _download("Download edited.pdf", out.getvalue(), "edited.pdf", "application/pdf")
+                page_link = base_doc[pgnum_link - 1]
+                # Simple placeholder rect at top-left; user can re-open in Visual Edit to move if desired
+                rect = fitz.Rect(72, 72, 200, 100)
+                page_link.insert_link({"kind": fitz.LINK_URI, "from": rect, "uri": link})
+                out = io.BytesIO()
+                base_doc.save(out, deflate=True, clean=True, garbage=3)
+                _download("Download with link.pdf", out.getvalue(), "with_link.pdf", "application/pdf")
+                st.success("Inserted link placeholder.")
 
 # ---------- Tab 8: Compress PDF ----------
 with tabs[7]:
@@ -1305,6 +1382,7 @@ with tabs[14]:
             _download("Download PDFs.zip", mem.getvalue(), "converted_pdfs.zip", "application/zip")
 
         shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 
 
