@@ -66,7 +66,7 @@ ga4("G-XXXXXXX")
 def adsense(client_id: str, slot_id: str, *, height: int = 120, style: str = "display:block", ad_format: str = "auto", full_width: bool = True):
     """
     Render a Google AdSense unit inside Streamlit using an iframe-safe HTML block.
-    - client_id: your 'ca-pub-XXXXXXXXXXXX'
+    - client_id: your 'ca-pub-6839950833502659"
     - slot_id:   your ad unit slot id, e.g. '1234567890'
     - height:    pixel height of the iframe reservation box in Streamlit
     - style:     CSS style for the <ins> (e.g., 'display:block' or fixed sizes)
@@ -1328,7 +1328,7 @@ with tabs[14]:
 
 st.divider()
 adsense(
-    client_id="ca-pub-XXXXXXXXXXXX",   # <- replace
+    client_id="ca-pub-6839950833502659",   # <- replace
     slot_id="3333333333",              # <- replace
     height=120,
     style="display:block",
@@ -1346,6 +1346,7 @@ Learn more: https://policies.google.com/technologies/ads
 We don’t sell personal data. If you contact us, we use your info only to respond.
 Last updated: 2025-10-03
 """)
+
 
 
 
