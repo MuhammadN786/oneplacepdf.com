@@ -1405,15 +1405,6 @@ adsense(
     full_width=True
 )
 
-st.divider()
-with st.expander("Privacy Policy"):
-    st.write("""
-We use Google AdSense to serve ads, which may use cookies to personalize content.
-Learn more: https://policies.google.com/technologies/ads
-
-We don’t sell personal data. If you contact us, we use your info only to respond.
-Last updated: 2025-10-03
-""")
 
 
 
