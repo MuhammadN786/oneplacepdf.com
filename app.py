@@ -15,6 +15,53 @@ import fitz  # PyMuPDF
 from PIL import Image
 from pdf2docx import Converter as Pdf2DocxConverter
 import streamlit.components.v1 as components
+import streamlit as st
+import streamlit.components.v1 as components
+
+def ga4(measurement_id: str):
+    """Inject GA4 tracking (runs in body; fine for Streamlit)."""
+    if not measurement_id:
+        return
+    if not st.session_state.get("_ga4_loaded"):
+        components.html(f"""
+        <!-- Google tag (gtag.js) -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id={measurement_id}"></script>
+        <script>
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){{dataLayer.push(arguments);}}
+          gtag('js', new Date());
+          gtag('config', '{measurement_id}');
+        </script>
+        """, height=0)
+        st.session_state["_ga4_loaded"] = True
+
+def json_ld_site():
+    """Basic SEO JSON-LD (valid in body)."""
+    components.html("""
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "OnePlacePDF",
+      "url": "https://oneplacepdf.com/",
+      "description": "Free online PDF tools to merge, split, compress, convert and protect PDFs.",
+      "inLanguage": "en",
+      "publisher": {
+        "@type": "Organization",
+        "name": "OnePlacePDF"
+      }
+    }
+    </script>
+    """, height=0)
+# Minimal landing-style intro (kept inside the app)
+st.markdown("### Free Online PDF Tools")
+st.write("Merge, split, compress, convert, protect, and more — fast and simple in your browser.")
+
+# Structured data to help Google understand the site
+json_ld_site()
+
+# (Optional) Google Analytics – replace with your GA4 ID like 'G-XXXXXXX'
+ga4("G-XXXXXXX")
 
 def adsense(client_id: str, slot_id: str, *, height: int = 120, style: str = "display:block", ad_format: str = "auto", full_width: bool = True):
     """
@@ -1289,6 +1336,16 @@ adsense(
     full_width=True
 )
 
+
+st.divider()
+with st.expander("Privacy Policy"):
+    st.write("""
+We use Google AdSense to serve ads, which may use cookies to personalize content.
+Learn more: https://policies.google.com/technologies/ads
+
+We don’t sell personal data. If you contact us, we use your info only to respond.
+Last updated: 2025-10-03
+""")
 
 
 
