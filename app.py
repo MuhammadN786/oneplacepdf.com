@@ -73,8 +73,8 @@ if not st.session_state.get("_adsense_head_loaded"):
 def adsense(client_id: str, slot_id: str, *, height: int = 120, style: str = "display:block", ad_format: str = "auto", full_width: bool = True):
     """
     Render a Google AdSense unit inside Streamlit using an iframe-safe HTML block.
-    - client_id: your 'ca-pub-6839950833502659"
-    - slot_id:   your ad unit slot id, e.g. '1234567890'
+    - client_id: 'ca-pub-6839950833502659"
+    - slot_id:   3025573109
     - height:    pixel height of the iframe reservation box in Streamlit
     - style:     CSS style for the <ins> (e.g., 'display:block' or fixed sizes)
     - ad_format: 'auto' for responsive; omit or change if you use fixed sizes
@@ -96,18 +96,7 @@ def adsense(client_id: str, slot_id: str, *, height: int = 120, style: str = "di
     # Reserve some vertical space so layout doesn't jump
     components.html(html, height=height)
 
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6839950833502659"
-     crossorigin="anonymous"></script>
-<!-- OnePlacePDF Header -->
-<ins class="adsbygoogle"
-     style="display:block"
-     data-ad-client="ca-pub-6839950833502659"
-     data-ad-slot="3025573109"
-     data-ad-format="auto"
-     data-full-width-responsive="true"></ins>
-<script>
-     (adsbygoogle = window.adsbygoogle || []).push({});
-</script>
+
 # ============================
 # Utilities (quality-focused)
 # ============================
@@ -1346,25 +1335,13 @@ with tabs[14]:
 
 st.divider()
 adsense(
-    client_id="ca-pub-6839950833502659",   # <- replace
-    slot_id="3333333333",              # <- replace
+    client_id="ca-pub-6839950833502659",
+    slot_id=3025573109,
     height=120,
     style="display:block",
     ad_format="auto",
     full_width=True
 )
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6839950833502659"
-     crossorigin="anonymous"></script>
-<!-- OnePlacePDF Header -->
-<ins class="adsbygoogle"
-     style="display:block"
-     data-ad-client="ca-pub-6839950833502659"
-     data-ad-slot="3025573109"
-     data-ad-format="auto"
-     data-full-width-responsive="true"></ins>
-<script>
-     (adsbygoogle = window.adsbygoogle || []).push({});
-</script>
 
 st.divider()
 with st.expander("Privacy Policy"):
@@ -1375,6 +1352,7 @@ Learn more: https://policies.google.com/technologies/ads
 We don’t sell personal data. If you contact us, we use your info only to respond.
 Last updated: 2025-10-03
 """)
+
 
 
 
