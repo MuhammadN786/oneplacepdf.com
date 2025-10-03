@@ -15,9 +15,19 @@ import fitz  # PyMuPDF
 from PIL import Image
 from pdf2docx import Converter as Pdf2DocxConverter
 import streamlit.components.v1 as components
-import streamlit as st
-import streamlit.components.v1 as components
 
+# -----------------------------
+# App config (must be first st.*)
+# -----------------------------
+st.set_page_config(
+    page_title="OnePlacePDF — All-in-One PDF Tools",
+    page_icon="📄",
+    layout="wide",
+)
+
+# -----------------------------
+# Integrations & helpers
+# -----------------------------
 def ga4(measurement_id: str):
     """Inject GA4 tracking (runs in body; fine for Streamlit)."""
     if not measurement_id:
@@ -46,22 +56,15 @@ def json_ld_site():
       "url": "https://oneplacepdf.com/",
       "description": "Free online PDF tools to merge, split, compress, convert and protect PDFs.",
       "inLanguage": "en",
-      "publisher": {
-        "@type": "Organization",
-        "name": "OnePlacePDF"
-      }
+      "publisher": { "@type": "Organization", "name": "OnePlacePDF" }
     }
     </script>
     """, height=0)
-# Minimal landing-style intro (kept inside the app)
-st.markdown("### Free Online PDF Tools")
-st.write("Merge, split, compress, convert, protect, and more — fast and simple in your browser.")
-
-# Structured data to help Google understand the site
-json_ld_site()
 
 # (Optional) Google Analytics – replace with your GA4 ID like 'G-XXXXXXX'
 ga4("G-XXXXXXX")
+
+# Load AdSense bootstrap <script> once
 if not st.session_state.get("_adsense_head_loaded"):
     components.html("""
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6839950833502659"
@@ -69,33 +72,23 @@ if not st.session_state.get("_adsense_head_loaded"):
     """, height=0)
     st.session_state["_adsense_head_loaded"] = True
 
-
 def adsense(client_id: str, slot_id: str, *, height: int = 120, style: str = "display:block", ad_format: str = "auto", full_width: bool = True):
     """
     Render a Google AdSense unit inside Streamlit using an iframe-safe HTML block.
-    - client_id: 'ca-pub-6839950833502659"
-    - slot_id:   3025573109
-    - height:    pixel height of the iframe reservation box in Streamlit
-    - style:     CSS style for the <ins> (e.g., 'display:block' or fixed sizes)
-    - ad_format: 'auto' for responsive; omit or change if you use fixed sizes
-    - full_width: True adds data-full-width-responsive='true'
+    - client_id: 'ca-pub-6839950833502659'
+    - slot_id:   '3025573109'
     """
     responsive_attr = "data-full-width-responsive='true'" if full_width else ""
     html = f"""
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={client_id}" crossorigin="anonymous"></script>
     <ins class="adsbygoogle"
          style="{style}"
          data-ad-client="{client_id}"
          data-ad-slot="{slot_id}"
          data-ad-format="{ad_format}"
          {responsive_attr}></ins>
-    <script>
-      (adsbygoogle = window.adsbygoogle || []).push({{}});
-    </script>
+    <script>(adsbygoogle = window.adsbygoogle || []).push({{}});</script>
     """
-    # Reserve some vertical space so layout doesn't jump
     components.html(html, height=height)
-
 
 # ============================
 # Utilities (quality-focused)
@@ -148,20 +141,89 @@ def _which_soffice():
     return shutil.which("soffice")
 
 # ==================================
-# Streamlit page (no global footer)
+# Pages & Navigation
 # ==================================
 
-st.set_page_config(page_title="OnePlacePDF — All-in-One PDF Tools", page_icon="📄", layout="wide")
-st.title("OnePlacePDF — All-in-One PDF Tools")
-st.caption("Merge, split, convert & secure — with quality-first processing.")
-adsense(
-    client_id="ca-pub-XXXXXXXXXXXX",   # <- replace
-    slot_id="1111111111",              # <- replace
-    height=120,                        # typical responsive banner height
-    style="display:block",
-    ad_format="auto",
-    full_width=True
+# Sidebar router
+page = st.sidebar.radio(
+    "Navigate",
+    ["Home", "About", "Privacy Policy", "Terms of Service", "Contact"],
+    index=0,
 )
+
+# ---- Page renderers ----
+def render_home():
+    json_ld_site()  # structured data on the main page
+    st.title("OnePlacePDF — All-in-One PDF Tools")
+    st.caption("Merge, split, convert & secure — with quality-first processing.")
+    adsense(
+        client_id="ca-pub-6839950833502659",   # ← your AdSense client
+        slot_id="3025573109",                  # ← your ad slot
+        height=120,
+        style="display:block",
+        ad_format="auto",
+        full_width=True
+    )
+    st.markdown("### Free Online PDF Tools")
+    st.write(
+        "Merge, split, compress, convert, protect, and more — fast and simple in your browser."
+    )
+
+    # 🔽🔽 Put your existing tool UI here (uploaders, processing, results, etc.)
+    # e.g., file_uploader, merge/split/ocr functions ...
+    # -------------------------------------------------
+    # ... YOUR CURRENT APP CODE GOES HERE ...
+    # -------------------------------------------------
+
+def render_about():
+    st.title("About OnePlacePDF")
+    st.write("""
+OnePlacePDF was created to make working with PDFs simple and accessible from any device.
+We focus on speed, privacy, and reliability so students, freelancers, and businesses
+can manage documents without hassle. Our cloud approach means you don't need heavy software—
+everything runs in your browser with secure, temporary processing. We continuously improve
+our tools to ensure consistent quality and ease of use.
+""")
+
+def render_privacy():
+    st.title("Privacy Policy")
+    st.write("""
+Your privacy matters. We do not sell or share your personal data. Files you upload are processed
+securely and are not stored longer than needed to provide the service; temporary files are deleted
+automatically after your session. We may collect anonymous usage metrics to improve performance and
+features. By using OnePlacePDF, you agree to this policy. Questions? Email oneplacepdf@gmail.com.
+""")
+
+def render_terms():
+    st.title("Terms of Service")
+    st.write("""
+By using OnePlacePDF you agree to use the service lawfully. The tools are provided "as is" without
+guarantees of uninterrupted availability. Do not upload illegal or harmful content. We may update or
+change features at any time; continued use means you accept any changes. If you disagree with these
+terms, please discontinue using the site.
+""")
+
+def render_contact():
+    st.title("Contact Us")
+    st.write("""
+We’d love to hear from you. For support, feedback, or inquiries:
+**Email:** oneplacepdf@gmail.com
+
+We aim to reply within 2–3 business days. Your feedback helps us improve OnePlacePDF for everyone.
+""")
+
+# ---- Router ----
+if page == "Home":
+    render_home()
+elif page == "About":
+    render_about()
+elif page == "Privacy Policy":
+    render_privacy()
+elif page == "Terms of Service":
+    render_terms()
+elif page == "Contact":
+    render_contact()
+
 
 
 tabs = st.tabs([
@@ -1352,6 +1414,7 @@ Learn more: https://policies.google.com/technologies/ads
 We don’t sell personal data. If you contact us, we use your info only to respond.
 Last updated: 2025-10-03
 """)
+
 
 
 
