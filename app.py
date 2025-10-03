@@ -26,6 +26,53 @@ st.set_page_config(
 )
 
 # -----------------------------
+# Create sitemap.xml & robots.txt in /app/static (served by Streamlit)
+# -----------------------------
+def _ensure_static_assets():
+    """
+    Writes sitemap.xml and robots.txt into a 'static' folder alongside this file.
+    Streamlit serves files under /app/static/..., so your public URLs are:
+      https://oneplacepdf.com/app/static/sitemap.xml
+      https://oneplacepdf.com/app/static/robots.txt
+    """
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    static_dir = os.path.join(root_dir, "static")
+    os.makedirs(static_dir, exist_ok=True)
+
+    # IMPORTANT: keep these URLs in sync with your pages/routes
+    urls = [
+        "https://oneplacepdf.com/",
+        "https://oneplacepdf.com/about",
+        "https://oneplacepdf.com/privacy",
+        "https://oneplacepdf.com/terms",
+        "https://oneplacepdf.com/contact",
+    ]
+
+    # Build minimal valid XML
+    url_items = "\n".join(
+        f"  <url><loc>{u}</loc><changefreq>monthly</changefreq></url>" for u in urls
+    )
+    sitemap_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{url_items}
+</urlset>
+"""
+
+    robots_txt = f"""User-agent: *
+Allow: /
+Sitemap: https://oneplacepdf.com/app/static/sitemap.xml
+"""
+
+    with open(os.path.join(static_dir, "sitemap.xml"), "w", encoding="utf-8") as f:
+        f.write(sitemap_xml.strip() + "\n")
+
+    with open(os.path.join(static_dir, "robots.txt"), "w", encoding="utf-8") as f:
+        f.write(robots_txt)
+
+# Create/update the files on startup
+_ensure_static_assets()
+
+# -----------------------------
 # Integrations & helpers
 # -----------------------------
 def ga4(measurement_id: str):
@@ -175,6 +222,9 @@ def render_home():
     # ... YOUR CURRENT APP CODE GOES HERE ...
     # -------------------------------------------------
 
+    # Helpful note for you (not visible to Google)
+    st.caption("Sitemap is available at https://oneplacepdf.com/app/static/sitemap.xml")
+
 def render_about():
     st.title("About OnePlacePDF")
     st.write("""
@@ -224,13 +274,13 @@ elif page == "Terms of Service":
 elif page == "Contact":
     render_contact()
 
-
-
+# (Your tabs etc. can remain after this)
 tabs = st.tabs([
     "Images → PDF", "Merge", "Split", "Rotate", "Re-order", "Extract Text",
     "Edit", "Compress", "Protect", "Unlock",
     "PDF → Images", "PDF → DOCX", "Watermark", "Page Numbers", "Office → PDF"
 ])
+
 
 # ---------- Tab 1: Images → PDF (HQ, fixed margins & deprecation) ----------
 with tabs[0]:
@@ -1404,6 +1454,7 @@ adsense(
     ad_format="auto",
     full_width=True
 )
+
 
 
 
