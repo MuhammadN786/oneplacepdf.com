@@ -69,8 +69,8 @@ def _which_soffice():
 # Streamlit page (no global footer)
 # ==================================
 
-st.set_page_config(page_title="OnePlacePDF — High Quality PDF Tools", page_icon="📄", layout="wide")
-st.title("OnePlacePDF")
+st.set_page_config(page_title="OnePlacePDF — All-in-One PDF Tools", page_icon="📄", layout="wide")
+st.title("OnePlacePDF — All-in-One PDF Tools")
 st.caption("Merge, split, convert & secure — with quality-first processing.")
 
 tabs = st.tabs([
@@ -1142,6 +1142,7 @@ with tabs[14]:
             _download("Download PDFs.zip", mem.getvalue(), "converted_pdfs.zip", "application/zip")
 
         shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 
 
