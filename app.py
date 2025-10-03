@@ -646,7 +646,9 @@ with tabs[6]:
         path = _save_upload(pdf, suffix=".pdf")
         base_doc = fitz.open(path)
 
-        subtabs = st.tabs(["Pages", "Visual Edit", "Annotations", "Media", "Links & Signatures"])
+        subtabs = st.tabs([
+            "Pages", "Visual Edit", "Annotations", "Media", "Links & Signatures"
+        ])
 
         # ---- Pages ----
         with subtabs[0]:
@@ -672,77 +674,169 @@ with tabs[6]:
             # Tools / options
             colA, colB, colC, colD = st.columns(4)
             with colA:
-                tool = st.selectbox("Tool", ["Move/Select", "Text", "Rectangle", "Fr]()
+                tool = st.selectbox(
+                    "Tool",
+                    ["Move/Select", "Text", "Rectangle", "Free Draw", "Signature Stamp"]
+                )
+            with colB:
+                text_val = st.text_input("Text (for Text tool)", "Edit me")
+                font_size = st.slider("Font size (pt)", 8, 72, 18)
+            with colC:
+                color_hex = st.color_picker("Color", "#000000")
+                opacity = st.slider("Opacity (%)", 10, 100, 90)
+            with colD:
+                stroke_w = st.slider("Stroke width", 1, 10, 2)
 
-# ---------- Tab 8: Compress PDF ----------
-with tabs[7]:
-    st.subheader("Compress PDF")
+            rect_mode = st.radio(
+                "Rectangle mode", ["Whiteout (filled)", "Outline (no fill)"], horizontal=True
+            )
+            sig_img = st.file_uploader(
+                "Upload signature (PNG/JPG) — used by Signature Stamp",
+                type=["png", "jpg", "jpeg"],
+                key="sig"
+            )
 
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="compress_pdf")
-    if pdf:
-        path = _save_upload(pdf, suffix=".pdf")
-        orig_size = os.path.getsize(path) / 1024
+            rgb = tuple(int(color_hex[i:i+2], 16) / 255 for i in (1, 3, 5))
+            rgba_css = f"rgba({int(rgb[0]*255)},{int(rgb[1]*255)},{int(rgb[2]*255)},{opacity/100})"
 
-        st.markdown(f"**Original size:** {orig_size:.2f} KB")
+            # Map canvas px -> PDF points
+            page_rect = page.rect
+            sx = page_rect.width / max(1, bg_img.width)
+            sy = page_rect.height / max(1, bg_img.height)
 
-        method = st.radio("Compression method", ["Ghostscript", "PyMuPDF (custom)"])
+            def px_rect_to_pt(obj):
+                x0 = obj.get("left", 0) * sx
+                y0 = obj.get("top", 0) * sy
+                x1 = (obj.get("left", 0) + obj.get("width", 0)) * sx
+                y1 = (obj.get("top", 0) + obj.get("height", 0)) * sy
+                return fitz.Rect(x0, y0, x1, y1)
 
-        if method == "Ghostscript":
-            preset = st.selectbox("Quality preset", [
-                "/screen (smallest)", 
-                "/ebook (medium)", 
-                "/printer (high quality)", 
-                "/prepress (best quality)"
-            ], index=1)
+            def px_point_to_pt(x_px, y_px):
+                return x_px * sx, y_px * sy
 
-            if st.button("Compress with Ghostscript"):
-                gs = _which_gs()
-                if not gs:
-                    st.error("Ghostscript not found on this system.")
-                else:
-                    out_path = path.replace(".pdf", "_compressed.pdf")
+            drawing_mode = (
+                "transform" if tool == "Move/Select" else
+                "text"      if tool == "Text" else
+                "rect"      if tool == "Rectangle" else
+                "freedraw"
+            )
+
+            # Canvas (using background_image_url)
+            canvas_result = st_canvas(
+                fill_color=rgba_css,
+                stroke_width=stroke_w,
+                stroke_color=rgba_css,
+                background_image_url=bg_data_url,
+                update_streamlit=True,
+                height=bg_img.height,
+                width=bg_img.width,
+                drawing_mode=drawing_mode,
+                key="canvas_pdf_edit",
+                display_toolbar=True,
+            )
+
+            st.caption("Draw/place items. Click **Apply Edits to PDF** to write them into the file.")
+
+            if st.button("Apply Edits to PDF"):
+                objs = (canvas_result.json_data or {}).get("objects", [])
+                doc2 = fitz.open(path)
+                p = doc2[pgnum - 1]
+
+                last_rect_for_signature = None
+
+                for obj in objs:
+                    otype = obj.get("type")
+
+                    # --- Text ---
+                    if otype in ("textbox", "i-text", "text"):
+                        txt = (obj.get("text") or text_val).strip()
+                        if not txt:
+                            continue
+                        x_pt, y_pt = px_point_to_pt(obj.get("left", 0), obj.get("top", 0))
+                        p.insert_text(
+                            (x_pt, y_pt + float(font_size)),
+                            txt,
+                            fontsize=float(font_size),
+                            color=rgb,
+                            fill_opacity=opacity / 100,
+                            render_mode=0,
+                            overlay=True
+                        )
+
+                    # --- Rectangles ---
+                    elif otype == "rect":
+                        r = px_rect_to_pt(obj)
+                        last_rect_for_signature = r
+                        if rect_mode.startswith("Whiteout"):
+                            p.draw_rect(r, color=rgb, fill=rgb, fill_opacity=opacity / 100,
+                                        width=0, overlay=True)
+                        else:
+                            p.draw_rect(r, color=rgb, width=max(stroke_w, 1), overlay=True)
+
+                    # --- Free draw paths ---
+                    elif otype == "path":
+                        path_cmds = obj.get("path", [])
+                        if not path_cmds:
+                            continue
+                        pts = []
+                        left_px = obj.get("left", 0); top_px = obj.get("top", 0)
+                        for cmd in path_cmds:
+                            if cmd and cmd[0] in ("M", "L") and len(cmd) >= 3:
+                                x_pt, y_pt = px_point_to_pt(left_px + float(cmd[1]),
+                                                            top_px + float(cmd[2]))
+                                pts.append((x_pt, y_pt))
+                        for a, b in zip(pts, pts[1:]):
+                            p.draw_line(a, b, color=rgb, width=max(stroke_w, 1), overlay=True)
+
+                # --- Signature placement ---
+                if sig_img:
                     try:
-                        cmd = [
-                            gs, "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.6",
-                            f"-dPDFSETTINGS={preset.split()[0]}",
-                            "-dNOPAUSE", "-dQUIET", "-dBATCH",
-                            f"-sOutputFile={out_path}", path
-                        ]
-                        subprocess.run(cmd, check=True)
-                        new_size = os.path.getsize(out_path) / 1024
-                        st.success(f"Compressed size: {new_size:.2f} KB (saved {orig_size-new_size:.2f} KB)")
-                        _download("Download compressed.pdf", _to_bytes(out_path), "compressed.pdf", "application/pdf")
-                    except Exception:
-                        st.error("Compression failed.")
+                        sig = Image.open(sig_img)
+                        if last_rect_for_signature is None:
+                            w = page_rect.width * 0.35
+                            h = w * (sig.height / max(1, sig.width))
+                            cx = page_rect.x0 + page_rect.width * 0.5
+                            cy = page_rect.y0 + page_rect.height * 0.8
+                            last_rect_for_signature = fitz.Rect(
+                                cx - w/2, cy - h/2, cx + w/2, cy + h/2
+                            )
+                        buf = io.BytesIO()
+                        sig.save(buf, format="PNG", optimize=True)
+                        p.insert_image(last_rect_for_signature, stream=buf.getvalue(),
+                                       keep_proportion=True, overlay=True)
+                    except Exception as e:
+                        st.warning(f"Signature placement skipped: {e}")
 
-        else:  # PyMuPDF custom compression
-            dpi = st.slider("Downsample DPI", 72, 300, 150)
-            quality = st.slider("JPEG quality", 60, 100, 85)
-
-            if st.button("Compress with PyMuPDF"):
-                doc = fitz.open(path)
                 out = io.BytesIO()
-                doc.save(out, deflate=True, garbage=3, clean=True, 
-                         ascii=False, linear=True)
-                doc.close()
+                doc2.save(out, deflate=True, clean=True, garbage=3)
+                _download("Download edited.pdf", out.getvalue(),
+                          "edited.pdf", "application/pdf")
+                st.success("✅ Edits applied.")
 
-                # Re-open and downsample images
-                new_doc = fitz.open()
-                for page in fitz.open(path):
-                    pix = page.get_pixmap(dpi=dpi)
-                    imgdata = pix.tobytes("jpg", jpg_quality=quality)
-                    img = Image.open(io.BytesIO(imgdata))
-                    w, h = img.size
-                    pdf_page = new_doc.new_page(width=w, height=h)
-                    pdf_page.insert_image(pdf_page.rect, stream=imgdata)
-                buf = io.BytesIO()
-                new_doc.save(buf)
-                new_doc.close()
+        # ---- Annotations ----
+        with subtabs[2]:
+            st.markdown("### Quick Annotations")
+            st.info("Highlight, notes, and shapes will be merged into the Visual Edit tool soon.")
 
-                new_size = len(buf.getvalue()) / 1024
-                st.success(f"Compressed size: {new_size:.2f} KB (saved {orig_size-new_size:.2f} KB)")
-                _download("Download compressed.pdf", buf.getvalue(), "compressed.pdf", "application/pdf")
+        # ---- Media ----
+        with subtabs[3]:
+            st.markdown("### Insert Images (simple)")
+            st.info("Use the 'Signature Stamp' in Visual Edit to position images precisely.")
 
+        # ---- Links & Signatures ----
+        with subtabs[4]:
+            st.markdown("### Hyperlinks & Signatures")
+            pgnum_link = st.number_input("Page", 1, len(base_doc), 1, key="linkpg")
+            link = st.text_input("Hyperlink (https://example.com)")
+            if link and st.button("Insert Link"):
+                page_link = base_doc[pgnum_link - 1]
+                rect = fitz.Rect(72, 72, 200, 100)
+                page_link.insert_link({"kind": fitz.LINK_URI, "from": rect, "uri": link})
+                out = io.BytesIO()
+                base_doc.save(out, deflate=True, clean=True, garbage=3)
+                _download("Download with link.pdf", out.getvalue(),
+                          "with_link.pdf", "application/pdf")
+                st.success("Inserted link placeholder.")
 # ---------- Tab 9: Protect PDF ----------
 with tabs[8]:
     st.subheader("Protect PDF (Password + Permissions)")
@@ -1228,6 +1322,7 @@ with tabs[14]:
             _download("Download PDFs.zip", mem.getvalue(), "converted_pdfs.zip", "application/zip")
 
         shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 
 
