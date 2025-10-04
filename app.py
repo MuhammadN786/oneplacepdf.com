@@ -53,50 +53,36 @@ from flask import (
 )
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from flask import (
+    Flask, request, render_template_string, send_file,
+    redirect, url_for, make_response
+)
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB uploads
+app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
 
-# --- Canonical host / HTTPS (proxy-safe) ------------------------------------
-# Primary public host taken from BASE_URL (defined above)
-PRIMARY_HOST = BASE_URL.split("://", 1)[-1].strip("/").lower()
-
-# Trust X-Forwarded-* from Cloudflare → Render so request.scheme/host are correct
+# Trust proxy headers (Cloudflare → Render) so request.host/scheme are sane
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
-# Quietly ignore any old Streamlit asset/health requests (noise from crawlers)
+# Canonical host from your BASE_URL
+PRIMARY_HOST = BASE_URL.split("://", 1)[-1].strip("/").lower()
+
+# Quietly ignore old Streamlit crawler hits
 @app.before_request
 def _block_old_streamlit():
     if request.path.startswith("/_stcore/"):
         return make_response(("Not found", 404))
 
+# Only redirect www → apex (let Cloudflare handle HTTPS)
 @app.before_request
-def _canonicalize_host_and_https():
+def _only_www_to_apex():
     host = (request.host or "").split(":", 1)[0].lower()
-    scheme = request.scheme  # thanks to ProxyFix this respects X-Forwarded-Proto
-    path = request.full_path if request.query_string else request.path
-
-    # Skip Render's internal host to avoid redirect loops on health checks
     if host.endswith(".onrender.com"):
         return
-
-    # 1) Redirect known subdomains (e.g., www) to the apex
     if host != PRIMARY_HOST and host.endswith("." + PRIMARY_HOST):
+        path = request.full_path if request.query_string else request.path
         return redirect(f"https://{PRIMARY_HOST}{path}", code=301)
-
-    # 2) Enforce HTTPS only if we can see it's actually HTTP
-    if scheme == "http":
-        return redirect(f"https://{host or PRIMARY_HOST}{path}", code=301)
-
-# HSTS for stronger HTTPS (only when served on the primary host)
-@app.after_request
-def _add_hsts(resp):
-    if (request.host or "").split(":", 1)[0].lower() == PRIMARY_HOST:
-        resp.headers.setdefault(
-            "Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"
-        )
-    return resp
-
-
 
 
 # ==========================
@@ -1452,6 +1438,7 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
