@@ -43,6 +43,39 @@ GA4_ID         = "G-XXXXXXX"                # <-- optional; leave as "" to disab
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB uploads
 
+# --- Canonical host + HTTPS redirect (SEO/AdSense friendly) ---
+# Derive the primary host from BASE_URL defined above.
+PRIMARY_HOST = BASE_URL.replace("https://", "").replace("http://", "").strip("/")
+
+@app.before_request
+def _canonicalize_host_and_https():
+    host   = (request.headers.get("Host") or "").lower()
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    # keep full path + query; avoid trailing "?" when no query string
+    path = request.full_path if request.query_string else request.path
+
+    # Skip redirect for Render's internal/onrender health checks
+    if host.endswith(".onrender.com"):
+        return None
+
+    # 1) Force apex host (e.g., redirect www → apex)
+    if host and host != PRIMARY_HOST:
+        return redirect(f"https://{PRIMARY_HOST}{path}", code=301)
+
+    # 2) Enforce HTTPS
+    if scheme != "https":
+        return redirect(f"https://{PRIMARY_HOST}{path}", code=301)
+    return None
+
+# (Optional but recommended) Add HSTS for stronger HTTPS
+@app.after_request
+def _add_hsts(resp):
+    resp.headers.setdefault(
+        "Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"
+    )
+    return resp
+
+
 # ==========================
 # Utilities
 # ==========================
@@ -1396,5 +1429,6 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
