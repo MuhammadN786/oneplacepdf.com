@@ -571,7 +571,7 @@ def home():
 
 @app.get("/about")
 def about():
-    body = f("""
+    body = f"""
 {SITE_NAME} was built to make working with PDFs simple, fast, and accessible on any device.
 <br><br>
 <strong>What we do</strong><br>
@@ -594,13 +594,13 @@ Students preparing assignments, freelancers sending proposals, teams producing c
 <strong>What’s next</strong><br>
 We continuously improve performance and add sensible options without bloat. If something isn’t working the way you expect,
 email us at {CONTACT_EMAIL} — we read every message.
-""")
+"""
     return PAGES_SIMPLE("About", body)
 
 
 @app.get("/privacy")
 def privacy():
-    body = f("""
+    body = f"""
 We respect your privacy. This page explains what we process, why, and your choices.
 <br><br>
 <strong>1) Files you upload</strong><br>
@@ -618,7 +618,7 @@ You can use your browser settings to block analytics cookies if you prefer.
 <br><br>
 <strong>4) Advertising (Google AdSense)</strong><br>
 We display ads via Google AdSense. Google and its partners may use cookies to serve and measure ads (including personalized ads where permitted).
-You can manage ad personalization at <em>adssettings.google.com</em> and learn more in Google’s policies.
+You can manage ad personalization at adssettings.google.com and learn more in Google’s policies.
 <br><br>
 <strong>5) What we do NOT do</strong><br>
 • We don’t sell, rent, or trade your personal information.<br>
@@ -636,13 +636,13 @@ contact us at {CONTACT_EMAIL}.
 <br><br>
 <strong>9) Changes</strong><br>
 We may update this policy to reflect improvements or legal requirements. Continued use of the site means you accept the updated policy.
-""")
+"""
     return PAGES_SIMPLE("Privacy", body)
 
 
 @app.get("/terms")
 def terms():
-    body = f("""
+    body = f"""
 By using {SITE_NAME}, you agree to these terms.
 <br><br>
 <strong>Acceptable use</strong><br>
@@ -670,13 +670,13 @@ These terms are governed by applicable local laws where the service is operated.
 <br><br>
 <strong>Updates</strong><br>
 We may update these terms; continued use after publication constitutes acceptance. If you do not agree, please stop using the service.
-""")
+"""
     return PAGES_SIMPLE("Terms", body)
 
 
 @app.get("/contact")
 def contact():
-    body = f("""
+    body = f"""
 We’d love to hear from you.
 <br><br>
 <strong>Email</strong><br>
@@ -691,8 +691,9 @@ We’d love to hear from you.
 We aim to reply within 2–3 business days. For sensitive security reports, please include “SECURITY” in the subject line so we can prioritize.
 <br><br>
 Thank you for helping us make {SITE_NAME} better for everyone!
-""")
+"""
     return PAGES_SIMPLE("Contact", body)
+
 
 
 # ==========================
@@ -1395,4 +1396,5 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
