@@ -129,12 +129,12 @@ PAGE = r"""
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>{{ site_name }} — All-in-One PDF Tools</title>
+  <title>{{ site_name }} — Free All-in-One PDF Tools</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Free online PDF tools to merge, split, compress, convert and protect PDFs." />
+  <meta name="description" content="Free online PDF tools to merge, split, compress, convert and protect PDFs. Fast, private, works on any device. No sign-up required." />
   <link rel="canonical" href="{{ base_url }}/" />
   <meta property="og:title" content="{{ site_name }} — All-in-One PDF Tools" />
-  <meta property="og:description" content="Merge, split, compress, convert, protect, and more — fast and simple in your browser." />
+  <meta property="og:description" content="Merge, split, compress, convert, protect, and more — fast and simple in your browse." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="{{ base_url }}/" />
   <meta name="google-adsense-account" content="{{ adsense_client }}" />
@@ -1417,6 +1417,7 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
