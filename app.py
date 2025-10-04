@@ -1,126 +1,62 @@
-# OnePlacePDF — best-quality build
-# High-quality PDF toolkit with careful handling to avoid needless recompression.
-# Tabs: Images→PDF, Merge, Split, Rotate, Re-order, Extract Text, Edit, Compress,
-#       Protect, Unlock, PDF→Images, PDF→DOCX, Watermark, Page Numbers, Office→PDF
+# app.py
+# OnePlacePDF — Single-file Flask app (no Streamlit)
+# Features:
+# - Normal HTML site with real <head> (AdSense, GA4, SEO, JSON-LD)
+# - Pages: Home (tools), About, Privacy, Terms, Contact
+# - Tools: Images→PDF, Merge, Combine, Split, Rotate, Reorder, Extract, Compress,
+#          Protect, Unlock, PDF→Images, PDF→DOCX, Watermark, Page Numbers, Office→PDF
+# - Static endpoints: /robots.txt, /sitemap.xml, /ads.txt
 #
-# pip install -r requirements.txt
-# streamlit run app.py
+# Quick start:
+#   python -m venv .venv && . .venv/bin/activate  (Windows: .venv\Scripts\activate)
+#   pip install flask pypdf pymupdf pillow pdf2docx python-docx reportlab pandas openpyxl python-pptx pypandoc
+#   python app.py
+#
+# NOTE: Some optional conversions (Office→PDF) rely on extra system tools (e.g., pandoc, LaTeX).
+#       The app handles failures gracefully and still serves core PDF tools.
 
-import io, os, re, shutil, subprocess, tempfile, zipfile, uuid
-from typing import List
+import io, os, re, shutil, tempfile, zipfile, uuid
+from typing import List, Tuple
 
-import streamlit as st
+from flask import (
+    Flask, request, render_template_string, send_file,
+    redirect, url_for, make_response
+)
+
+from werkzeug.utils import secure_filename
+
 from pypdf import PdfReader, PdfWriter
 import fitz  # PyMuPDF
 from PIL import Image
 from pdf2docx import Converter as Pdf2DocxConverter
-import streamlit.components.v1 as components
 
-# -----------------------------
-# App config (must be first st.*)
-# -----------------------------
-st.set_page_config(
-    page_title="OnePlacePDF — All-in-One PDF Tools",
-    page_icon="📄",
-    layout="wide",
-)
-# -----------------------------
-# Google AdSense: site-ownership verification + loader
-# (Equivalent to putting the script in <head> on every page)
-# -----------------------------
-import streamlit.components.v1 as components
+# ---------- Site config (edit these) ----------
+SITE_NAME = "OnePlacePDF"
+BASE_URL  = "https://oneplacepdf.com"      # change if different domain
+CONTACT_EMAIL = "oneplacepdf@gmail.com"
 
-if not st.session_state.get("_adsense_verify_loaded"):
-    components.html("""
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6839950833502659"
-            crossorigin="anonymous"></script>
-    """, height=0)
-    st.session_state["_adsense_verify_loaded"] = True
+# Google tags (replace with your real IDs)
+ADSENSE_CLIENT = "ca-pub-6839950833502659"  # <-- YOUR AdSense publisher ID
+ADSENSE_SLOT   = "3025573109"               # <-- an ad slot ID (create in AdSense)
+GA4_ID         = "G-XXXXXXX"                # <-- optional; leave as "" to disable
+# ---------------------------------------------
 
-# -----------------------------
-# Integrations & helpers
-# -----------------------------
-def ga4(measurement_id: str):
-    """Inject GA4 tracking (runs in body; fine for Streamlit)."""
-    if not measurement_id:
-        return
-    if not st.session_state.get("_ga4_loaded"):
-        components.html(f"""
-        <!-- Google tag (gtag.js) -->
-        <script async src="https://www.googletagmanager.com/gtag/js?id={measurement_id}"></script>
-        <script>
-          window.dataLayer = window.dataLayer || [];
-          function gtag(){{dataLayer.push(arguments);}}
-          gtag('js', new Date());
-          gtag('config', '{measurement_id}');
-        </script>
-        """, height=0)
-        st.session_state["_ga4_loaded"] = True
+app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB uploads
 
-def json_ld_site():
-    """Basic SEO JSON-LD (valid in body)."""
-    components.html("""
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "OnePlacePDF",
-      "url": "https://oneplacepdf.com/",
-      "description": "Free online PDF tools to merge, split, compress, convert and protect PDFs.",
-      "inLanguage": "en",
-      "publisher": { "@type": "Organization", "name": "OnePlacePDF" }
-    }
-    </script>
-    """, height=0)
-
-# (Optional) Google Analytics – replace with your GA4 ID like 'G-XXXXXXX'
-ga4("G-XXXXXXX")
-
-# Load AdSense bootstrap <script> once
-if not st.session_state.get("_adsense_head_loaded"):
-    components.html("""
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6839950833502659"
-        crossorigin="anonymous"></script>
-    """, height=0)
-    st.session_state["_adsense_head_loaded"] = True
-
-def adsense(client_id: str, slot_id: str, *, height: int = 120, style: str = "display:block", ad_format: str = "auto", full_width: bool = True):
-    """
-    Render a Google AdSense unit inside Streamlit using an iframe-safe HTML block.
-    - client_id: 'ca-pub-6839950833502659'
-    - slot_id:   '3025573109'
-    """
-    responsive_attr = "data-full-width-responsive='true'" if full_width else ""
-    html = f"""
-    <ins class="adsbygoogle"
-         style="{style}"
-         data-ad-client="{client_id}"
-         data-ad-slot="{slot_id}"
-         data-ad-format="{ad_format}"
-         {responsive_attr}></ins>
-    <script>(adsbygoogle = window.adsbygoogle || []).push({{}});</script>
-    """
-    components.html(html, height=height)
-
-# ============================
-# Utilities (quality-focused)
-# ============================
-
-def _save_upload(uf, suffix=""):
+# ==========================
+# Utilities
+# ==========================
+def _tmpfile(suffix=""):
     fd, path = tempfile.mkstemp(suffix=suffix)
+    return fd, path
+
+def _save_upload(fs, suffix="") -> str:
+    """Save a single FileStorage to a tmp path and return path."""
+    fd, path = _tmpfile(suffix=suffix)
     with os.fdopen(fd, "wb") as f:
-        f.write(uf.read())
+        f.write(fs.read())
     return path
-
-def _save_uploads(ufs, suffix=""):
-    return [_save_upload(u, suffix=suffix) for u in ufs]
-
-def _to_bytes(path: str) -> bytes:
-    with open(path, "rb") as f:
-        return f.read()
-
-def _download(label: str, data: bytes, filename: str, mime="application/octet-stream"):
-    st.download_button(label, data=data, file_name=filename, mime=mime)
 
 def _parse_ranges(ranges: str, total_pages: int) -> List[int]:
     """Return 0-based page indices from '1-3,5,7-9'. Keeps order, de-dupes."""
@@ -143,1295 +79,1198 @@ def _parse_ranges(ranges: str, total_pages: int) -> List[int]:
                 result.append(i)
     return result
 
-def _which_gs():
-    for cand in ("gs", "gswin64c", "gswin32c"):
-        if shutil.which(cand):
-            return cand
-    return None
+def _human(n: int) -> str:
+    for u in ["B","KB","MB","GB","TB"]:
+        if n < 1024:
+            return f"{n:.2f} {u}"
+        n /= 1024
+    return f"{n:.2f} PB"
 
-def _which_soffice():
-    return shutil.which("soffice")
+def _roman(n: int) -> str:
+    # Simple Roman numerals (1..3999)
+    vals = [
+        (1000,"M"), (900,"CM"), (500,"D"), (400,"CD"),
+        (100,"C"), (90,"XC"), (50,"L"), (40,"XL"),
+        (10,"X"), (9,"IX"), (5,"V"), (4,"IV"), (1,"I")]
+    out = []
+    for v, s in vals:
+        while n >= v:
+            out.append(s); n -= v
+    return "".join(out)
 
-# ==================================
-# Pages & Navigation
-# ==================================
+def _send_bytes(data: bytes, filename: str, mime: str):
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=filename, mimetype=mime)
 
-# Sidebar router
-page = st.sidebar.radio(
-    "Navigate",
-    ["Home", "About", "Privacy Policy", "Terms of Service", "Contact"],
-    index=0,
-)
+# ==========================
+# HTML Template
+# ==========================
+PAGE = r"""
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ site_name }} — All-in-One PDF Tools</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Free online PDF tools to merge, split, compress, convert and protect PDFs." />
+  <link rel="canonical" href="{{ base_url }}/" />
+  <meta property="og:title" content="{{ site_name }} — All-in-One PDF Tools" />
+  <meta property="og:description" content="Merge, split, compress, convert, protect, and more — fast and simple in your browser." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="{{ base_url }}/" />
+  <meta name="google-adsense-account" content="{{ adsense_client }}" />
+  {% if ga4_id %}
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga4_id }}"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date()); gtag('config', '{{ ga4_id }}');
+  </script>
+  {% endif %}
+  <!-- AdSense loader (sitewide) -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>
 
-# ---- Page renderers ----
-def render_home():
-    json_ld_site()  # structured data on the main page
-    st.title("OnePlacePDF — All-in-One PDF Tools")
-    st.caption("Merge, split, convert & secure — with quality-first processing.")
-    adsense(
-        client_id="ca-pub-6839950833502659",   # ← your AdSense client
-        slot_id="3025573109",                  # ← your ad slot
-        height=120,
-        style="display:block",
-        ad_format="auto",
-        full_width=True
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"WebSite",
+    "name":"{{ site_name }}",
+    "url":"{{ base_url }}/",
+    "description":"Free online PDF tools to merge, split, compress, convert and protect PDFs.",
+    "inLanguage":"en",
+    "publisher":{"@type":"Organization","name":"{{ site_name }}"}
+  }
+  </script>
+
+  <style>
+    :root {
+      --bg:#0b1020; --card:#131a2a; --muted:#a9b2c7; --fg:#eaf0ff; --accent:#5da0ff; --accent2:#00d2d3;
+      --border:#24304a;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial; color: var(--fg); background: linear-gradient(180deg, #0b1020 0%, #0a0f1e 70%, #070b17 100%); }
+    header { padding: 28px 16px; border-bottom: 1px solid var(--border); position: sticky; top:0; background: rgba(11,16,32,.9); backdrop-filter: blur(6px); z-index:10; }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    nav a { color: var(--muted); text-decoration: none; margin-right: 16px; }
+    nav a:hover { color: var(--fg); }
+    .hero { padding: 28px 16px 8px; }
+    .hero h1 { margin: 0 0 8px; font-size: 28px; }
+    .hero p  { margin: 0 0 16px; color: var(--muted); }
+    .tabs { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 16px 16px; }
+    .tab-btn { background: #0e1426; border: 1px solid var(--border); color: var(--fg); padding: 10px 14px; border-radius: 10px; cursor: pointer; font-size: 14px; }
+    .tab-btn.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(93,160,255,.15) inset; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 16px; padding: 0 16px 40px; }
+    @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+    .card { background: var(--card); border:1px solid var(--border); border-radius: 14px; padding: 16px; }
+    .card h3 { margin: 0 0 10px; font-size: 18px; }
+    label { display:block; margin: 10px 0 6px; color: var(--muted); font-size: 13px; }
+    input[type="file"], select, input[type="text"], input[type="number"], textarea {
+      width: 100%; background: #0e1426; color: var(--fg); border:1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 14px;
+    }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .btn { display:inline-block; background: linear-gradient(90deg, var(--accent), var(--accent2));
+           color:#081020; font-weight:600; border:0; padding: 10px 14px; border-radius: 10px; cursor:pointer; margin-top:12px;}
+    .muted { color: var(--muted); font-size: 12px; }
+    footer { color: var(--muted); border-top: 1px solid var(--border); padding: 20px 16px; }
+    .ad { display:block; width:100%; min-height:120px; margin: 10px 0; }
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap" style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="font-size:22px;">📄</div>
+        <strong>{{ site_name }}</strong>
+      </div>
+      <nav>
+        <a href="{{ url_for('home') }}">Home</a>
+        <a href="{{ url_for('about') }}">About</a>
+        <a href="{{ url_for('privacy') }}">Privacy</a>
+        <a href="{{ url_for('terms') }}">Terms</a>
+        <a href="{{ url_for('contact') }}">Contact</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <section class="hero">
+      <h1>{{ site_name }} — All-in-One PDF Tools</h1>
+      <p>Merge, split, convert & secure — with quality-first processing. Everything runs locally on our server while you wait; results download instantly.</p>
+      <!-- Responsive Ad unit -->
+      <ins class="adsbygoogle ad"
+           style="display:block"
+           data-ad-client="{{ adsense_client }}"
+           data-ad-slot="{{ adsense_slot }}"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+      <script>(adsbygoogle=window.adsbygoogle||[]).push({});</script>
+    </section>
+
+    <div class="tabs" id="tabs">
+      {% for t in tabs %}
+        <button class="tab-btn" data-target="{{ t.id }}">{{ t.label }}</button>
+      {% endfor %}
+    </div>
+
+    <div id="sections">
+
+      <!-- Images → PDF -->
+      <section class="grid section" id="images-pdf">
+        <div class="card">
+          <h3>Images → PDF (high quality)</h3>
+          <form method="post" action="{{ url_for('images_to_pdf') }}" enctype="multipart/form-data">
+            <label>Upload images (JPG/PNG)</label>
+            <input type="file" name="images" accept=".jpg,.jpeg,.png" multiple required>
+
+            <div class="row">
+              <div>
+                <label>Page size</label>
+                <select name="page_size">
+                  <option>Original</option><option>A4</option><option>Letter</option>
+                </select>
+              </div>
+              <div>
+                <label>Target DPI</label>
+                <select name="dpi">
+                  <option>300</option><option>600</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="row">
+              <div>
+                <label>Margin (pt)</label>
+                <input type="number" name="margin" value="24" min="0" max="96">
+              </div>
+              <div>
+                <label>Orientation</label>
+                <select name="orientation">
+                  <option>Auto</option><option>Portrait</option><option>Landscape</option>
+                </select>
+              </div>
+            </div>
+
+            <label>Output</label>
+            <select name="output">
+              <option>Single PDF (all images)</option>
+              <option>One PDF per image (ZIP)</option>
+            </select>
+
+            <button class="btn" type="submit">Convert to PDF</button>
+          </form>
+          <p class="muted">Keeps image quality; adds margins safely; reorders via filename upload order.</p>
+        </div>
+      </section>
+
+      <!-- Merge / Combine -->
+      <section class="grid section" id="merge">
+        <div class="card">
+          <h3>Merge PDFs (append)</h3>
+          <form method="post" action="{{ url_for('merge_append') }}" enctype="multipart/form-data">
+            <label>Upload PDFs (any order)</label>
+            <input type="file" name="pdfs" accept=".pdf" multiple required>
+            <label>Pages to include for each file (optional, comma-separated ranges; applies to ALL files)</label>
+            <input type="text" name="ranges" placeholder="e.g., 1-3,5">
+            <label><input type="checkbox" name="bookmarks" checked> Add bookmarks by filename</label>
+            <button class="btn" type="submit">Merge Now</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Combine PDFs (interleave)</h3>
+          <form method="post" action="{{ url_for('combine_interleave') }}" enctype="multipart/form-data">
+            <label>Upload 2–10 PDFs</label>
+            <input type="file" name="pdfs" accept=".pdf" multiple required>
+            <label>Chunk size per file (e.g., 1 = A1,B1,A2,B2...)</label>
+            <input type="number" name="chunk" value="1" min="1" max="10">
+            <label>Loop until all pages exhausted?</label>
+            <select name="loop">
+              <option>Yes</option><option>No</option>
+            </select>
+            <button class="btn" type="submit">Combine Now</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Split / Rotate / Reorder -->
+      <section class="grid section" id="split-rotate">
+        <div class="card">
+          <h3>Split PDF</h3>
+          <form method="post" action="{{ url_for('split_pdf') }}" enctype="multipart/form-data">
+            <label>Upload PDF</label>
+            <input type="file" name="pdf" accept=".pdf" required>
+            <label>Split by</label>
+            <select name="mode">
+              <option>Page ranges (custom)</option>
+              <option>Every page</option>
+              <option>Approx file size</option>
+            </select>
+            <label>Ranges (if custom)</label>
+            <input type="text" name="ranges" placeholder="1-3,5,7-9">
+            <label>Max size per part (MB) (if size mode)</label>
+            <input type="number" name="size_mb" value="5" min="1" max="50">
+            <button class="btn" type="submit">Split Now</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Rotate PDF</h3>
+          <form method="post" action="{{ url_for('rotate_pdf') }}" enctype="multipart/form-data">
+            <label>Upload PDF</label>
+            <input type="file" name="pdf" accept=".pdf" required>
+            <label>Rotate all pages by</label>
+            <select name="deg">
+              <option>90</option><option>180</option><option>270</option>
+            </select>
+            <button class="btn" type="submit">Apply Rotation</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Re-order Pages</h3>
+          <form method="post" action="{{ url_for('reorder_pdf') }}" enctype="multipart/form-data">
+            <label>Upload PDF</label>
+            <input type="file" name="pdf" accept=".pdf" required>
+            <label>Pages to keep (blank = all)</label>
+            <input type="text" name="keep" placeholder="e.g., 1-3,6,8">
+            <label>Order (comma-separated, 1-based)</label>
+            <input type="text" name="order" placeholder="e.g., 3,1,2">
+            <button class="btn" type="submit">Build Re-ordered PDF</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Extract / Compress -->
+      <section class="grid section" id="extract-compress">
+        <div class="card">
+          <h3>Extract Text</h3>
+          <form method="post" action="{{ url_for('extract_text') }}" enctype="multipart/form-data">
+            <label>Upload PDF</label>
+            <input type="file" name="pdf" accept=".pdf" required>
+            <label>Mode</label>
+            <select name="mode"><option>Plain text</option><option>Preserve layout</option><option>Raw</option></select>
+            <label>Pages (blank = all)</label>
+            <input type="text" name="ranges" placeholder="1-3,5">
+            <label>Search term (optional)</label>
+            <input type="text" name="search" placeholder="keyword">
+            <button class="btn" type="submit">Extract Now</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Compress PDF</h3>
+          <form method="post" action="{{ url_for('compress_pdf') }}" enctype="multipart/form-data">
+            <label>Upload PDF</label>
+            <input type="file" name="pdf" accept=".pdf" required>
+            <label>Preset</label>
+            <select name="preset">
+              <option>Standard</option>
+              <option>Light (best quality)</option>
+              <option>Strong</option>
+              <option>Extreme</option>
+              <option>Lossless (no image recompress)</option>
+            </select>
+            <label>JPEG quality (50-95, used when recompressing)</label>
+            <input type="number" name="quality" value="85" min="50" max="95">
+            <label>Downsample images to DPI (blank=auto)</label>
+            <input type="number" name="target_dpi" value="200" min="50" max="600">
+            <label><input type="checkbox" name="strip_meta" checked> Strip metadata</label>
+            <label><input type="checkbox" name="linearize" checked> Linearize for web (Fast Web View)</label>
+            <label><input type="checkbox" name="clean_xref" checked> Aggressive clean</label>
+            <button class="btn" type="submit">Compress</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Protect / Unlock -->
+      <section class="grid section" id="protect-unlock">
+        <div class="card">
+          <h3>Protect PDF (Password)</h3>
+          <form method="post" action="{{ url_for('protect_pdf') }}" enctype="multipart/form-data">
+            <label>Upload PDF</label>
+            <input type="file" name="pdf" accept=".pdf" required>
+            <label>User Password</label>
+            <input type="text" name="user_pwd" placeholder="password to open">
+            <label>Owner Password</label>
+            <input type="text" name="owner_pwd" placeholder="permissions password">
+            <label><input type="checkbox" name="allow_print" checked> Allow printing</label>
+            <label><input type="checkbox" name="allow_copy" checked> Allow copy</label>
+            <label><input type="checkbox" name="allow_annot" checked> Allow annotate</label>
+            <label>Encryption</label>
+            <select name="encryption">
+              <option>AES-256</option><option>AES-128</option><option>RC4-128</option><option>RC4-40</option>
+            </select>
+            <button class="btn" type="submit">Apply Protection</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Unlock PDF (Remove Password)</h3>
+          <form method="post" action="{{ url_for('unlock_pdf') }}" enctype="multipart/form-data">
+            <label>Upload encrypted PDFs</label>
+            <input type="file" name="pdfs" accept=".pdf" multiple required>
+            <label>Password</label>
+            <input type="text" name="password" required>
+            <button class="btn" type="submit">Unlock Now</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Conversions -->
+      <section class="grid section" id="conversions">
+        <div class="card">
+          <h3>PDF → Images (High Quality)</h3>
+          <form method="post" action="{{ url_for('pdf_to_images') }}" enctype="multipart/form-data">
+            <label>Upload PDFs</label>
+            <input type="file" name="pdfs" accept=".pdf" multiple required>
+            <label>Export DPI</label>
+            <input type="number" name="dpi" value="300" min="150" max="600" step="50">
+            <label>Format</label>
+            <select name="fmt"><option>PNG</option><option>JPEG</option><option>WebP</option></select>
+            <label>Quality (for JPEG/WebP)</label>
+            <input type="number" name="quality" value="95" min="80" max="100">
+            <label>Mode</label>
+            <select name="mode"><option>One image per page (ZIP)</option><option>All pages stitched vertically (one image)</option></select>
+            <button class="btn" type="submit">Convert</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>PDF → DOCX (Editable Word)</h3>
+          <form method="post" action="{{ url_for('pdf_to_docx') }}" enctype="multipart/form-data">
+            <label>Upload PDF</label>
+            <input type="file" name="pdf" accept=".pdf" required>
+            <label>Start page (1-based)</label>
+            <input type="number" name="start" value="1" min="1">
+            <label>End page (0 = all)</label>
+            <input type="number" name="end" value="0" min="0">
+            <label><input type="checkbox" name="keep_images" checked> Keep images</label>
+            <button class="btn" type="submit">Convert to DOCX</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Office → PDF (Word/Excel/PPT/Text/Images)</h3>
+          <form method="post" action="{{ url_for('office_to_pdf') }}" enctype="multipart/form-data">
+            <label>Upload files</label>
+            <input type="file" name="files" multiple
+                   accept=".docx,.xlsx,.pptx,.txt,.odt,.ods,.odp,.png,.jpg" required>
+            <button class="btn" type="submit">Convert to PDF</button>
+          </form>
+          <p class="muted">Some conversions may require extra system tools (pandoc/LaTeX). If unavailable, those files will be skipped with a message.</p>
+        </div>
+      </section>
+
+      <!-- Marking/Numbering -->
+      <section class="grid section" id="wm-number">
+        <div class="card">
+          <h3>Add Watermark</h3>
+          <form method="post" action="{{ url_for('watermark') }}" enctype="multipart/form-data">
+            <label>Upload PDF</label>
+            <input type="file" name="pdf" accept=".pdf" required>
+            <label>Type</label>
+            <select name="wm_type"><option>Text</option><option>Image</option></select>
+            <label>Text (if text WM)</label><input type="text" name="text" value="CONFIDENTIAL">
+            <label>Color hex (e.g. #FF0000)</label><input type="text" name="color" value="#FF0000">
+            <label>Opacity (%)</label><input type="number" name="opacity" value="20" min="10" max="90">
+            <label>Font size</label><input type="number" name="size" value="60" min="10" max="200">
+            <label>Rotation angle</label><input type="number" name="angle" value="45" min="0" max="360">
+            <label>Position</label>
+            <select name="pos"><option>Center</option><option>Top-left</option><option>Top-right</option><option>Bottom-left</option><option>Bottom-right</option><option>Diagonal Tiled</option></select>
+            <label>Watermark image (if image WM)</label><input type="file" name="wm_img" accept=".png,.jpg,.jpeg">
+            <label>Apply to pages (blank = all)</label><input type="text" name="pages" placeholder="1-3,5">
+            <button class="btn" type="submit">Apply Watermark</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Add Page Numbers</h3>
+          <form method="post" action="{{ url_for('page_numbers') }}" enctype="multipart/form-data">
+            <label>Upload PDF</label><input type="file" name="pdf" accept=".pdf" required>
+            <label>Pages (blank = all)</label><input type="text" name="ranges" placeholder="1-3,5">
+            <label>Style</label>
+            <select name="style"><option>1, 2, 3</option><option>01, 02, 03</option><option>i, ii, iii</option><option>I, II, III</option><option>a, b, c</option><option>A, B, C</option></select>
+            <label>Template</label><input type="text" name="template" value="Page {n} of {total}">
+            <label>Vertical</label><select name="pos_v"><option>Bottom</option><option>Top</option></select>
+            <label>Horizontal</label><select name="pos_h"><option>Center</option><option>Left</option><option>Right</option></select>
+            <label>Font size</label><input type="number" name="fontsize" value="12" min="8" max="32">
+            <label>Color hex</label><input type="text" name="color" value="#000000">
+            <label>Opacity (%)</label><input type="number" name="opacity" value="80" min="20" max="100">
+            <button class="btn" type="submit">Add Numbers</button>
+          </form>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <footer>
+    <div class="wrap">
+      <div>© {{ site_name }} • <a href="{{ url_for('privacy') }}" style="color:#9fc0ff;">Privacy</a> •
+        <a href="{{ url_for('terms') }}" style="color:#9fc0ff;">Terms</a> •
+        <a href="{{ url_for('contact') }}" style="color:#9fc0ff;">Contact</a></div>
+      <div class="muted">We do not keep your files longer than needed to deliver your download.</div>
+    </div>
+  </footer>
+
+  <script>
+    const tabs = [...document.querySelectorAll('.tab-btn')];
+    const sections = [...document.querySelectorAll('.section')];
+    function show(id){
+      sections.forEach(s => s.classList.add('hidden'));
+      tabs.forEach(b => b.classList.remove('active'));
+      document.getElementById(id).classList.remove('hidden');
+      tabs.find(b => b.dataset.target===id)?.classList.add('active');
+      history.replaceState(null, '', '#'+id);
+    }
+    tabs.forEach(b => b.addEventListener('click', () => show(b.dataset.target)));
+    const initial = location.hash?.replace('#','') || '{{ tabs[0].id }}';
+    show(initial);
+  </script>
+</body>
+</html>
+"""
+
+PAGES_SIMPLE = lambda title, body: f"""<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{title} — {SITE_NAME}</title>
+<link rel="canonical" href="{BASE_URL}/{title.lower() if title!='Home' else ''}" />
+<meta name="description" content="{SITE_NAME} — Free online PDF tools." />
+<meta name="google-adsense-account" content="{ADSENSE_CLIENT}" />
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={ADSENSE_CLIENT}" crossorigin="anonymous"></script>
+<style>body{{font-family:system-ui;margin:0;background:#0b1020;color:#eaf0ff}}.wrap{{max-width:800px;margin:0 auto;padding:24px}}a{{color:#9fc0ff}}</style>
+</head><body>
+<div class="wrap">
+  <h1>{title}</h1>
+  <p style="color:#a9b2c7">{body}</p>
+  <p><a href="/">← Back to tools</a></p>
+</div></body></html>
+"""
+
+# ==========================
+# Routes: Pages
+# ==========================
+@app.get("/")
+def home():
+    tabs = [
+        {"id":"images-pdf",   "label":"Images → PDF"},
+        {"id":"merge",        "label":"Merge / Combine"},
+        {"id":"split-rotate", "label":"Split / Rotate / Reorder"},
+        {"id":"extract-compress","label":"Extract / Compress"},
+        {"id":"protect-unlock","label":"Protect / Unlock"},
+        {"id":"conversions",  "label":"PDF↔DOC/IMG"},
+        {"id":"wm-number",    "label":"Watermark / Numbers"},
+    ]
+    return render_template_string(
+        PAGE,
+        site_name=SITE_NAME, base_url=BASE_URL,
+        adsense_client=ADSENSE_CLIENT, adsense_slot=ADSENSE_SLOT,
+        ga4_id=GA4_ID, tabs=tabs
     )
-    st.markdown("### Free Online PDF Tools")
-    st.write(
-        "Merge, split, compress, convert, protect, and more — fast and simple in your browser."
-    )
 
-    # 🔽🔽 Put your existing tool UI here (uploaders, processing, results, etc.)
-    # e.g., file_uploader, merge/split/ocr functions ...
-    # -------------------------------------------------
-    # ... YOUR CURRENT APP CODE GOES HERE ...
-    # -------------------------------------------------
+@app.get("/about")
+def about():
+    body = ("{name} was created to make working with PDFs simple and accessible from any device. "
+            "We focus on speed, privacy, and reliability so students, freelancers and businesses can manage documents without hassle."
+            ).format(name=SITE_NAME)
+    return PAGES_SIMPLE("About", body)
 
-def render_about():
-    st.title("About OnePlacePDF")
-    st.write("""
-OnePlacePDF was created to make working with PDFs simple and accessible from any device.
-We focus on speed, privacy, and reliability so students, freelancers, and businesses
-can manage documents without hassle. Our cloud approach means you don't need heavy software—
-everything runs in your browser with secure, temporary processing. We continuously improve
-our tools to ensure consistent quality and ease of use.
-""")
+@app.get("/privacy")
+def privacy():
+    body = ("We do not sell or share your personal data. Files you upload are processed securely and deleted after delivery. "
+            f"For questions, email {CONTACT_EMAIL}.")
+    return PAGES_SIMPLE("Privacy", body)
 
-def render_privacy():
-    st.title("Privacy Policy")
-    st.write("""
-Your privacy matters. We do not sell or share your personal data. Files you upload are processed
-securely and are not stored longer than needed to provide the service; temporary files are deleted
-automatically after your session. We may collect anonymous usage metrics to improve performance and
-features. By using OnePlacePDF, you agree to this policy. Questions? Email oneplacepdf@gmail.com.
-""")
+@app.get("/terms")
+def terms():
+    body = ("Use this service lawfully. Tools are provided \"as is\" with no guarantees. "
+            "We may update features at any time; continued use means you accept any changes.")
+    return PAGES_SIMPLE("Terms", body)
 
-def render_terms():
-    st.title("Terms of Service")
-    st.write("""
-By using OnePlacePDF you agree to use the service lawfully. The tools are provided "as is" without
-guarantees of uninterrupted availability. Do not upload illegal or harmful content. We may update or
-change features at any time; continued use means you accept any changes. If you disagree with these
-terms, please discontinue using the site.
-""")
+@app.get("/contact")
+def contact():
+    body = (f"We’d love to hear from you. Email: {CONTACT_EMAIL}. "
+            "We aim to reply within 2–3 business days.")
+    return PAGES_SIMPLE("Contact", body)
 
-def render_contact():
-    st.title("Contact Us")
-    st.write("""
-We’d love to hear from you. For support, feedback, or inquiries:
-**Email:** oneplacepdf@gmail.com
+# ==========================
+# Static text endpoints
+# ==========================
+@app.get("/robots.txt")
+def robots():
+    txt = f"User-agent: *\nAllow: /\nSitemap: {BASE_URL}/sitemap.xml\n"
+    return make_response((txt, 200, {"Content-Type":"text/plain"}))
 
-We aim to reply within 2–3 business days. Your feedback helps us improve OnePlacePDF for everyone.
-""")
+@app.get("/ads.txt")
+def ads_txt():
+    # Google AdSense ads.txt line
+    txt = f"google.com, {ADSENSE_CLIENT.replace('ca-pub-','')}, DIRECT, f08c47fec0942fa0\n"
+    return make_response((txt, 200, {"Content-Type":"text/plain"}))
 
-# ---- Router ----
-if page == "Home":
-    render_home()
-elif page == "About":
-    render_about()
-elif page == "Privacy Policy":
-    render_privacy()
-elif page == "Terms of Service":
-    render_terms()
-elif page == "Contact":
-    render_contact()
+@app.get("/sitemap.xml")
+def sitemap():
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>{BASE_URL}/</loc></url>
+  <url><loc>{BASE_URL}/about</loc></url>
+  <url><loc>{BASE_URL}/privacy</loc></url>
+  <url><loc>{BASE_URL}/terms</loc></url>
+  <url><loc>{BASE_URL}/contact</loc></url>
+</urlset>"""
+    return make_response((xml, 200, {"Content-Type":"application/xml"}))
 
+# ==========================
+# Routes: Tools
+# ==========================
+@app.post("/tool/images-to-pdf")
+def images_to_pdf():
+    files = request.files.getlist("images")
+    if not files:
+        return "No images uploaded", 400
+    page_size = request.form.get("page_size", "Original")
+    dpi = int(request.form.get("dpi", "300"))
+    margin = float(request.form.get("margin", "24"))
+    orientation = request.form.get("orientation", "Auto")
+    output = request.form.get("output", "Single PDF (all images)")
 
+    def page_dims(iw, ih) -> Tuple[float, float]:
+        if page_size == "Original":
+            w_in = iw / float(max(dpi,1)); h_in = ih / float(max(dpi,1))
+            return max(w_in*72.0,1.0), max(h_in*72.0,1.0)
+        if page_size == "A4":     w_pt,h_pt = 595.276, 841.890
+        else:                     w_pt,h_pt = 612.0,   792.0
+        if orientation == "Landscape" or (orientation=="Auto" and iw>ih):
+            w_pt,h_pt = h_pt,w_pt
+        return w_pt,h_pt
 
-tabs = st.tabs([
-    "Images → PDF", "Merge", "Split", "Rotate", "Re-order", "Extract Text",
-    "Edit", "Compress", "Protect", "Unlock",
-    "PDF → Images", "PDF → DOCX", "Watermark", "Page Numbers", "Office → PDF"
-])
+    def safe_inner(rect, m):
+        max_mx = max((rect.width-1.0)/2.0,0.0)
+        max_my = max((rect.height-1.0)/2.0,0.0)
+        m = min(m, max_mx, max_my)
+        return fitz.Rect(rect.x0+m, rect.y0+m, rect.x1-m, rect.y1-m)
 
-# ---------- Tab 1: Images → PDF (HQ, fixed margins & deprecation) ----------
-with tabs[0]:
-    st.subheader("Images → PDF (high quality)")
+    def target_rect(rect, iw, ih):
+        inner = safe_inner(rect, margin)
+        pw, ph = max(inner.width,1e-6), max(inner.height,1e-6)
+        ar = iw/float(max(ih,1))
+        if pw/ph > ar:
+            nh = ph; nw = ar*nh
+        else:
+            nw = pw; nh = nw/ar
+        x0 = inner.x0 + (pw-nw)/2.0; y0 = inner.y0 + (ph-nh)/2.0
+        return fitz.Rect(x0,y0,x0+nw,y0+nh)
 
-    imgs = st.file_uploader(
-        "Upload images (JPG/PNG/JPEG)",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=True
-    )
+    def image_stream_lossless(path):
+        with open(path,"rb") as f: raw=f.read()
+        try:
+            with Image.open(io.BytesIO(raw)) as im:
+                if im.mode in ("RGBA","LA","P"):
+                    bg = Image.new("RGB", im.size, (255,255,255))
+                    im_rgba = im.convert("RGBA")
+                    alpha = im_rgba.split()[-1]
+                    bg.paste(im_rgba, mask=alpha)
+                    buf = io.BytesIO(); bg.save(buf, format="PNG", optimize=True)
+                    return buf.getvalue()
+            return raw
+        except:
+            return raw
 
-    if imgs:
-        st.info("Preview your images below. You can reorder them and adjust settings.")
+    tmp_paths=[]
+    try:
+        for fs in files:
+            p = _save_upload(fs)
+            tmp_paths.append(p)
 
-        # Save uploads temporarily
-        img_paths = _save_uploads(imgs)
-
-        # Thumbnails (no deprecation warning)
-        cols = st.columns(4)
-        for i, p in enumerate(img_paths):
-            with Image.open(p) as im:
-                tw = 140
-                th = int(im.height * tw / max(1, im.width))
-                with cols[i % 4]:
-                    st.image(im.resize((tw, th)), caption=f"Img {i+1}", use_container_width=True)
-
-        # Options
-        st.markdown("### Options")
-        page_size   = st.selectbox("Page size", ["Original", "A4", "Letter"], index=0)
-        target_dpi  = st.selectbox("Target DPI (for scaling)", [300, 600], index=0)
-        margin_pt   = st.slider("Margin (points)", 0, 96, 24)
-        orientation = st.selectbox("Orientation (for A4/Letter)", ["Auto", "Portrait", "Landscape"], index=0)
-        output_mode = st.radio("Output", ["Single PDF (all images)", "One PDF per image (ZIP)"], index=0)
-
-        # Helpers
-        def _page_dims_pts(img_w_px: int, img_h_px: int):
-            """Return page size in PDF points (1 pt = 1/72 inch)."""
-            if page_size == "Original":
-                w_in = img_w_px / float(max(target_dpi, 1))
-                h_in = img_h_px / float(max(target_dpi, 1))
-                # at least 1pt to avoid zero pages
-                return max(w_in * 72.0, 1.0), max(h_in * 72.0, 1.0)
-
-            if page_size == "A4":
-                w_pt, h_pt = 595.276, 841.890
-            else:  # Letter
-                w_pt, h_pt = 612.0, 792.0
-
-            # Orientation
-            if orientation == "Landscape" or (orientation == "Auto" and img_w_px > img_h_px):
-                w_pt, h_pt = h_pt, w_pt
-
-            return w_pt, h_pt
-
-        def _safe_inner_rect(page_rect: "fitz.Rect", margin: float) -> "fitz.Rect":
-            """Return inner rect after margins (never collapses to zero)."""
-            # Max margin that still leaves at least 1pt in both dimensions
-            max_margin_x = max( (page_rect.width  - 1.0) / 2.0, 0.0 )
-            max_margin_y = max( (page_rect.height - 1.0) / 2.0, 0.0 )
-            m = min(margin, max_margin_x, max_margin_y)
-            return fitz.Rect(
-                page_rect.x0 + m,
-                page_rect.y0 + m,
-                page_rect.x1 - m,
-                page_rect.y1 - m
-            )
-
-        def _target_rect(page_rect: "fitz.Rect", img_w_px: int, img_h_px: int) -> "fitz.Rect":
-            """Fit image proportionally inside inner rect."""
-            inner = _safe_inner_rect(page_rect, float(margin_pt))
-            pw = max(inner.width,  1e-6)
-            ph = max(inner.height, 1e-6)
-            ar_img = img_w_px / float(max(img_h_px, 1))
-            # choose by which side limits first
-            if pw / ph > ar_img:
-                new_h = ph
-                new_w = ar_img * new_h
-            else:
-                new_w = pw
-                new_h = new_w / ar_img
-            x0 = inner.x0 + (pw - new_w) / 2.0
-            y0 = inner.y0 + (ph - new_h) / 2.0
-            return fitz.Rect(x0, y0, x0 + new_w, y0 + new_h)
-
-        def _image_stream_lossless(img_path: str) -> bytes:
-            """Embed original bytes when safe; flatten alpha to PNG if needed."""
-            with open(img_path, "rb") as f:
-                raw = f.read()
-            try:
-                with Image.open(io.BytesIO(raw)) as im:
-                    if im.mode in ("RGBA", "LA", "P"):
-                        bg = Image.new("RGB", im.size, (255, 255, 255))
-                        im_rgba = im.convert("RGBA")
-                        alpha = im_rgba.split()[-1]
-                        bg.paste(im_rgba, mask=alpha)
-                        buf = io.BytesIO()
-                        bg.save(buf, format="PNG", optimize=True)
-                        return buf.getvalue()
-                return raw
-            except Exception:
-                return raw
-
-        if st.button("Convert to PDF"):
-            tmpdir = tempfile.mkdtemp(prefix="img2pdf_hq_")
-            try:
-                if output_mode.startswith("Single"):
-                    doc = fitz.open()
-                    for p in img_paths:
-                        with Image.open(p) as im:
-                            iw, ih = im.size
-                        w_pt, h_pt = _page_dims_pts(iw, ih)
-                        page = doc.new_page(width=w_pt, height=h_pt)
-                        rect = _target_rect(page.rect, iw, ih)
-                        page.insert_image(rect, stream=_image_stream_lossless(p), keep_proportion=True, overlay=True)
-                    out = io.BytesIO()
-                    doc.save(out, deflate=True)
-                    doc.close()
-                    _download("Download images.pdf", out.getvalue(), "images.pdf", "application/pdf")
-                else:
-                    mem = io.BytesIO()
-                    with zipfile.ZipFile(mem, "w") as zf:
-                        for i, p in enumerate(img_paths, start=1):
-                            with Image.open(p) as im:
-                                iw, ih = im.size
-                            w_pt, h_pt = _page_dims_pts(iw, ih)
-                            doc = fitz.open()
-                            page = doc.new_page(width=w_pt, height=h_pt)
-                            rect = _target_rect(page.rect, iw, ih)
-                            page.insert_image(rect, stream=_image_stream_lossless(p), keep_proportion=True, overlay=True)
-                            outp = os.path.join(tmpdir, f"image_{i}.pdf")
-                            doc.save(outp, deflate=True)
-                            doc.close()
-                            zf.write(outp, f"image_{i}.pdf")
-                    mem.seek(0)
-                    _download("Download images.zip", mem.getvalue(), "images.zip", "application/zip")
-            finally:
-                shutil.rmtree(tmpdir, ignore_errors=True)
-
-# ---------- Tab 2: Merge / Combine PDFs ----------
-with tabs[1]:
-    st.subheader("Merge / Combine PDFs")
-
-    subtabs = st.tabs(["Merge (Append)", "Combine (Interleave)"])
-
-    # ========== MERGE (APPEND) ==========
-    with subtabs[0]:
-        pdfs = st.file_uploader("Upload PDFs (any order)", type=["pdf"], accept_multiple_files=True, key="merge_files")
-
-        if pdfs:
-            st.markdown("### File Options")
-
-            merge_data = []
-            for i, uf in enumerate(pdfs, start=1):
-                path = _save_upload(uf, suffix=".pdf")
-                reader = PdfReader(path)
-
-                st.markdown(f"**{i}. {uf.name}** ({len(reader.pages)} pages)")
-                try:
-                    thumb = fitz.open(path)[0].get_pixmap(dpi=40).tobytes("png")
-                    st.image(thumb, caption=f"Preview {uf.name}", width=120)
-                except Exception:
-                    pass
-
-                include = st.checkbox(f"Include {uf.name}", value=True, key=f"merge_inc_{i}")
-                ranges = st.text_input("Pages to include (blank = all)", key=f"merge_rng_{i}")
-                order = st.number_input("Order position", min_value=1, max_value=len(pdfs), value=i, key=f"merge_ord_{i}")
-
-                merge_data.append({
-                    "name": uf.name,
-                    "path": path,
-                    "include": include,
-                    "ranges": ranges,
-                    "order": order
-                })
-
-            # Sort by order input
-            merge_data = sorted(merge_data, key=lambda x: x["order"])
-
-            st.markdown("---")
-            st.markdown("### Merge Options")
-            add_bookmarks = st.checkbox("Add bookmarks by file name", value=True, key="merge_bm")
-
-            if st.button("Merge Now"):
-                writer = PdfWriter()
-
-                for item in merge_data:
-                    if not item["include"]:
-                        continue
-                    r = PdfReader(item["path"])
-                    total = len(r.pages)
-                    idxs = _parse_ranges(item["ranges"], total) if item["ranges"].strip() else list(range(total))
-
-                    parent = None
-                    if add_bookmarks:
-                        # bookmark to the first page *after* existing ones
-                        parent = writer.add_outline_item(item["name"], max(len(writer.pages), 0), 0)
-
-                    for pg_idx in idxs:
-                        writer.add_page(r.pages[pg_idx])
-
-                out = io.BytesIO()
-                writer.write(out)
-                _download("Download merged.pdf", out.getvalue(), "merged.pdf", "application/pdf")
-
-    # ========== COMBINE (INTERLEAVE) ==========
-    with subtabs[1]:
-        pdfs_c = st.file_uploader(
-            "Upload 2–10 PDFs to interleave (A, B, C…)",
-            type=["pdf"], accept_multiple_files=True, key="combine_files"
-        )
-
-        if pdfs_c:
-            st.markdown("### Configure each file")
-            combine_rows = []
-            for i, uf in enumerate(pdfs_c, start=1):
-                path = _save_upload(uf, suffix=".pdf")
-                r = PdfReader(path)
-                col1, col2, col3, col4 = st.columns([3, 3, 2, 2])
-                with col1:
-                    st.write(f"**{i}. {uf.name}** — {len(r.pages)} pages")
-                with col2:
-                    rng = st.text_input("Pages (blank=all)", key=f"cmb_rng_{i}")
-                with col3:
-                    chunk = st.number_input("Chunk size", min_value=1, max_value=10, value=1, key=f"cmb_chunk_{i}")
-                with col4:
-                    order = st.number_input("Order", min_value=1, max_value=len(pdfs_c), value=i, key=f"cmb_ord_{i}")
-
-                combine_rows.append({
-                    "name": uf.name,
-                    "path": path,
-                    "total": len(r.pages),
-                    "ranges": rng,
-                    "chunk": int(chunk),
-                    "order": int(order)
-                })
-
-            # Sort by chosen order
-            combine_rows = sorted(combine_rows, key=lambda x: x["order"])
-
-            st.markdown("---")
-            st.markdown("### Combine Options")
-            loop_until_all = st.checkbox("Keep interleaving until all selected pages are exhausted", value=True, key="cmb_loop")
-            add_bmarks    = st.checkbox("Add top-level bookmarks per file", value=True, key="cmb_bm")
-
-            if st.button("Combine Now"):
-                # Build page queues per file according to ranges
-                queues = []
-                for row in combine_rows:
-                    r = PdfReader(row["path"])
-                    idxs = _parse_ranges(row["ranges"], row["total"]) if row["ranges"].strip() else list(range(row["total"]))
-                    queues.append({
-                        "name": row["name"],
-                        "reader": r,
-                        "pages": idxs[:],  # queue of page indices
-                        "chunk": row["chunk"]
-                    })
-
-                writer = PdfWriter()
-
-                # Optional bookmarks (record the first output index for each file once it appears)
-                first_out_index_for_file = {q["name"]: None for q in queues}
-
-                # Interleave
-                while True:
-                    progress_any = False
-                    for q in queues:
-                        if not q["pages"]:
-                            continue
-                        progress_any = True
-
-                        # Where the first page of this file lands (bookmark anchor)
-                        if add_bmarks and first_out_index_for_file[q["name"]] is None:
-                            first_out_index_for_file[q["name"]] = len(writer.pages)
-
-                        take = min(q["chunk"], len(q["pages"]))
-                        for _ in range(take):
-                            pg_idx = q["pages"].pop(0)
-                            writer.add_page(q["reader"].pages[pg_idx])
-
-                    if not loop_until_all:
-                        # Only one pass across files
-                        break
-
-                    if not progress_any:
-                        # All queues empty
-                        break
-
-                # Add top-level bookmarks if requested
-                if add_bmarks:
-                    for q in queues:
-                        anchor = first_out_index_for_file.get(q["name"])
-                        if anchor is not None:
-                            writer.add_outline_item(q["name"], anchor, 0)
-
-                out = io.BytesIO()
-                writer.write(out)
-                _download("Download combined.pdf", out.getvalue(), "combined.pdf", "application/pdf")
-
-# ---------- Tab 3: Split PDF ----------
-with tabs[2]:
-    st.subheader("Split PDF — multiple options")
-
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="split_pdf")
-
-    if pdf:
-        path = _save_upload(pdf, suffix=".pdf")
-        reader = PdfReader(path)
-        doc = fitz.open(path)
-
-        st.markdown(f"**This PDF has {len(reader.pages)} pages.**")
-        
-        # Preview thumbnails
-        st.markdown("### Preview Pages")
-        cols = st.columns(5)
-        for i, page in enumerate(doc, start=1):
-            thumb = page.get_pixmap(dpi=40).tobytes("png")
-            with cols[(i-1) % 5]:
-                st.image(thumb, caption=f"Page {i}", use_column_width=True)
-
-        # Split options
-        st.markdown("### Choose split method")
-        mode = st.radio("Split by:", [
-            "Page ranges (custom input)", 
-            "Every page (1 PDF per page)", 
-            "File size (approx MB)", 
-            "Bookmarks"
-        ])
-
-        ranges = ""
-        size_mb = 1
-        if mode == "Page ranges (custom input)":
-            ranges = st.text_input("Enter ranges (e.g. 1-3, 5, 7-9)")
-        elif mode == "File size (approx MB)":
-            size_mb = st.slider("Max size per file (MB)", 1, 50, 5)
-
-        if st.button("Split Now"):
+        if output.startswith("Single"):
+            doc = fitz.open()
+            for p in tmp_paths:
+                with Image.open(p) as im: iw,ih = im.size
+                w_pt,h_pt = page_dims(iw,ih)
+                page = doc.new_page(width=w_pt, height=h_pt)
+                rect = target_rect(page.rect, iw, ih)
+                page.insert_image(rect, stream=image_stream_lossless(p), keep_proportion=True, overlay=True)
+            out = io.BytesIO(); doc.save(out, deflate=True); doc.close()
+            return _send_bytes(out.getvalue(), "images.pdf", "application/pdf")
+        else:
             mem = io.BytesIO()
             with zipfile.ZipFile(mem, "w") as zf:
-                
-                if mode == "Page ranges (custom input)":
-                    idxs = _parse_ranges(ranges, len(reader.pages))
-                    if not idxs:
-                        st.error("No valid ranges provided.")
-                    else:
-                        # break into segments based on commas
-                        parts = [p.strip() for p in ranges.split(",") if p.strip()]
-                        for idx, part in enumerate(parts, start=1):
-                            seg_idxs = _parse_ranges(part, len(reader.pages))
-                            w = PdfWriter()
-                            for i in seg_idxs:
-                                w.add_page(reader.pages[i])
-                            b = io.BytesIO(); w.write(b)
-                            zf.writestr(f"split_part_{idx}_{part}.pdf", b.getvalue())
-
-                elif mode == "Every page (1 PDF per page)":
-                    for i, pg in enumerate(reader.pages, start=1):
-                        w = PdfWriter()
-                        w.add_page(pg)
-                        b = io.BytesIO(); w.write(b)
-                        zf.writestr(f"page_{i}.pdf", b.getvalue())
-
-                elif mode == "File size (approx MB)":
-                    w = PdfWriter(); current_size = 0; part = 1
-                    for i, pg in enumerate(reader.pages, start=1):
-                        w.add_page(pg)
-                        b = io.BytesIO(); w.write(b)
-                        if b.tell() >= size_mb * 1024 * 1024:
-                            zf.writestr(f"part_{part}.pdf", b.getvalue())
-                            part += 1
-                            w = PdfWriter()
-                    if len(w.pages) > 0:
-                        b = io.BytesIO(); w.write(b)
-                        zf.writestr(f"part_{part}.pdf", b.getvalue())
-
-                elif mode == "Bookmarks":
-                    outlines = reader.outline
-                    if not outlines:
-                        st.error("No bookmarks found in this PDF.")
-                    else:
-                        # Flatten top-level bookmarks
-                        for idx, item in enumerate(outlines, start=1):
-                            if isinstance(item, list): continue
-                            try:
-                                pgnum = reader.get_destination_page_number(item)
-                            except:
-                                continue
-                            start = pgnum
-                            end = reader.get_destination_page_number(outlines[idx]) if idx < len(outlines)-1 else len(reader.pages)
-                            w = PdfWriter()
-                            for i in range(start, end):
-                                w.add_page(reader.pages[i])
-                            b = io.BytesIO(); w.write(b)
-                            zf.writestr(f"bookmark_{idx}_{item.title}.pdf", b.getvalue())
-
+                for i,p in enumerate(tmp_paths, start=1):
+                    with Image.open(p) as im: iw,ih = im.size
+                    w_pt,h_pt = page_dims(iw,ih)
+                    doc = fitz.open()
+                    page = doc.new_page(width=w_pt, height=h_pt)
+                    rect = target_rect(page.rect, iw, ih)
+                    page.insert_image(rect, stream=image_stream_lossless(p), keep_proportion=True, overlay=True)
+                    outp = tempfile.mktemp(suffix=f"_image_{i}.pdf")
+                    doc.save(outp, deflate=True); doc.close()
+                    zf.write(outp, os.path.basename(outp))
+                    os.remove(outp)
             mem.seek(0)
-            _download("Download splits.zip", mem.getvalue(), "splits.zip", "application/zip")
+            return _send_bytes(mem.getvalue(), "images.zip", "application/zip")
+    finally:
+        for p in tmp_paths: 
+            try: os.remove(p)
+            except: pass
 
-# ---------- Tab 4: Rotate Pages ----------
-with tabs[3]:
-    st.subheader("Rotate Pages")
+@app.post("/tool/merge-append")
+def merge_append():
+    pdfs = request.files.getlist("pdfs")
+    if not pdfs:
+        return "No PDFs uploaded", 400
+    ranges = (request.form.get("ranges") or "").strip()
+    add_bm = "bookmarks" in request.form
 
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="rotate_pdf")
-    if pdf:
-        path = _save_upload(pdf, suffix=".pdf")
-        r = PdfReader(path)
-        doc = fitz.open(path)
-
-        st.markdown(f"**This PDF has {len(r.pages)} pages.**")
-
-        mode = st.radio("Choose mode:", ["Rotate all pages", "Rotate selected pages"])
-
-        if mode == "Rotate all pages":
-            deg = st.selectbox("Rotate by", [90, 180, 270])
-            if st.button("Apply Rotation"):
-                w = PdfWriter()
-                for pg in r.pages:
-                    pg.rotate(deg)
-                    w.add_page(pg)
-                out = io.BytesIO(); w.write(out)
-                _download("Download rotated.pdf", out.getvalue(), "rotated.pdf", "application/pdf")
-
-        else:  # Rotate selected pages with preview
-            st.markdown("### Per-page preview and rotation controls")
-
-            page_data = []
-            cols = st.columns(4)
-            for i, page in enumerate(doc, start=1):
-                thumb = page.get_pixmap(dpi=50).tobytes("png")
-                with cols[(i-1) % 4]:
-                    st.image(thumb, caption=f"Page {i}", use_container_width=True)  # <-- changed
-                    deg = st.selectbox(
-                        f"Rotate Pg {i}", [0, 90, 180, 270], index=0, key=f"rot_{i}"
-                    )
-                    page_data.append({"index": i-1, "deg": deg})
-
-            if st.button("Apply Custom Rotation"):
-                w = PdfWriter()
-                for pdata in page_data:
-                    pg = r.pages[pdata["index"]]
-                    if pdata["deg"] != 0:
-                        pg.rotate(pdata["deg"])
-                    w.add_page(pg)
-                out = io.BytesIO(); w.write(out)
-                _download("Download rotated.pdf", out.getvalue(), "rotated.pdf", "application/pdf")
-
-# ---------- Tab 5: Re-order Pages ----------
-with tabs[4]:
-    st.subheader("Re-order Pages")
-
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="reorder_pdf")
-    if pdf:
-        path = _save_upload(pdf, suffix=".pdf")
-        r = PdfReader(path)
-        doc = fitz.open(path)
-
-        st.markdown(f"**This PDF has {len(r.pages)} pages.**")
-
-        # Collect data for each page
-        page_data = []
-        cols = st.columns(4)
-        for i, page in enumerate(doc, start=1):
-            thumb = page.get_pixmap(dpi=50).tobytes("png")
-            with cols[(i-1) % 4]:
-                st.image(thumb, caption=f"Page {i}", use_column_width=True)
-                keep = st.checkbox(f"Keep {i}", value=True, key=f"keep_{i}")
-                rotate = st.selectbox(f"Rotate {i}", [0, 90, 180, 270], index=0, key=f"rot_{i}")
-                page_data.append({"index": i-1, "keep": keep, "rotate": rotate})
-
-        st.markdown("### Page Order")
-        order = st.multiselect(
-            "Select pages in the new order",
-            [i+1 for i in range(len(page_data)) if page_data[i]["keep"]],
-            default=[i+1 for i in range(len(page_data)) if page_data[i]["keep"]]
-        )
-
-        if st.button("Build Re-ordered PDF"):
-            w = PdfWriter()
-            for idx in order:
-                pdata = page_data[idx-1]
-                if not pdata["keep"]:
-                    continue
-                pg = r.pages[pdata["index"]]
-                if pdata["rotate"]:
-                    pg.rotate(pdata["rotate"])
-                w.add_page(pg)
-            out = io.BytesIO(); w.write(out)
-            _download("Download reordered.pdf", out.getvalue(), "reordered.pdf", "application/pdf")
-
-# ---------- Tab 6: Extract Text ----------
-with tabs[5]:
-    st.subheader("Extract Text from PDF")
-
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="extract_pdf")
-    if pdf:
-        path = _save_upload(pdf, suffix=".pdf")
-        doc = fitz.open(path)
-
-        st.markdown(f"**This PDF has {len(doc)} pages.**")
-
-        # Options
-        mode = st.radio("Extraction mode", ["Plain text", "Preserve layout", "Raw"])
-        ranges = st.text_input("Pages to extract (e.g., 1-3,5; blank = all)")
-        search = st.text_input("Search term (optional)")
-
-        # Preview thumbnails with text snippet
-        st.markdown("### Preview Pages")
-        cols = st.columns(4)
-        for i, page in enumerate(doc, start=1):
-            thumb = page.get_pixmap(dpi=40).tobytes("png")
-            text = page.get_text("text" if mode == "Plain text" else "blocks" if mode == "Preserve layout" else "raw")
-            snippet = (text[:120] + "…") if len(text) > 120 else text
-            with cols[(i-1) % 4]:
-                st.image(thumb, caption=f"Page {i}", use_column_width=True)
-                st.caption(snippet if snippet.strip() else "[No visible text]")
-
-        if st.button("Extract Now"):
-            idxs = _parse_ranges(ranges, len(doc)) if ranges.strip() else list(range(len(doc)))
-            texts = []
+    writer = PdfWriter()
+    for fs in pdfs:
+        p = _save_upload(fs, suffix=".pdf")
+        try:
+            r = PdfReader(p)
+            idxs = _parse_ranges(ranges, len(r.pages)) if ranges else list(range(len(r.pages)))
+            if add_bm:
+                writer.add_outline_item(fs.filename, len(writer.pages), 0)
             for i in idxs:
-                text = doc[i].get_text("text" if mode == "Plain text" else "blocks" if mode == "Preserve layout" else "raw")
-                if search and search.lower() in text.lower():
-                    # highlight search matches with >>> <<< markers
-                    pattern = re.compile(re.escape(search), re.IGNORECASE)
-                    text = pattern.sub(lambda m: f">>>{m.group(0)}<<<", text)
-                texts.append(f"--- Page {i+1} ---\n{text}")
+                writer.add_page(r.pages[i])
+        finally:
+            try: os.remove(p)
+            except: pass
 
-            final_text = "\n\n".join(texts)
-            st.text_area("Extracted Text", value=final_text, height=400)
+    out = io.BytesIO(); writer.write(out)
+    return _send_bytes(out.getvalue(), "merged.pdf", "application/pdf")
 
-            # Export buttons
-            st.download_button("Download .txt", data=final_text, file_name="extracted.txt", mime="text/plain")
+@app.post("/tool/combine-interleave")
+def combine_interleave():
+    pdfs = request.files.getlist("pdfs")
+    if len(pdfs) < 2:
+        return "Upload at least two PDFs", 400
+    chunk = max(1, int(request.form.get("chunk","1")))
+    loop = request.form.get("loop","Yes") == "Yes"
 
-            try:
-                from docx import Document
-                docx = Document()
-                docx.add_paragraph(final_text)
-                out_buf = io.BytesIO()
-                docx.save(out_buf)
-                st.download_button("Download .docx", data=out_buf.getvalue(), file_name="extracted.docx",
-                                   mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-            except ImportError:
-                st.info("Install `python-docx` to enable DOCX export: pip install python-docx")
-# ---------- Tab 7: Edit (Pro) ----------
-with tabs[6]:
-    st.subheader("Edit PDF — Pro (Interactive)")
+    queues = []
+    for fs in pdfs:
+        p = _save_upload(fs, suffix=".pdf")
+        r = PdfReader(p)
+        queues.append({"name":fs.filename, "path":p, "reader":r, "pages": list(range(len(r.pages))), "chunk":chunk})
 
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="edit_pro")
-    if pdf:
-        st.success(f"Uploaded: {pdf.name}")
+    writer = PdfWriter()
+    try:
+        while True:
+            progress_any = False
+            for q in queues:
+                if not q["pages"]: continue
+                progress_any = True
+                take = min(q["chunk"], len(q["pages"]))
+                for _ in range(take):
+                    i = q["pages"].pop(0)
+                    writer.add_page(q["reader"].pages[i])
+            if not loop or not progress_any:
+                break
+        out = io.BytesIO(); writer.write(out)
+        return _send_bytes(out.getvalue(), "combined.pdf", "application/pdf")
+    finally:
+        for q in queues:
+            try: os.remove(q["path"])
+            except: pass
 
-        subtabs = st.tabs([
-            "Pages", "Visual Edit", "Annotations", "Media", 
-            "Links & Signatures", "Scanned PDF Editor"
-        ])
+@app.post("/tool/split")
+def split_pdf():
+    fs = request.files.get("pdf")
+    if not fs: return "No PDF uploaded", 400
+    mode = request.form.get("mode","Page ranges (custom)")
+    ranges = (request.form.get("ranges") or "").strip()
+    size_mb = max(1, int(request.form.get("size_mb","5")))
+    p = _save_upload(fs, suffix=".pdf")
+    try:
+        reader = PdfReader(p)
+        mem = io.BytesIO()
+        with zipfile.ZipFile(mem, "w") as zf:
+            if mode.startswith("Page ranges"):
+                if not ranges:
+                    return "Provide ranges", 400
+                parts = [x.strip() for x in ranges.split(",") if x.strip()]
+                for idx, part in enumerate(parts, start=1):
+                    idxs = _parse_ranges(part, len(reader.pages))
+                    w = PdfWriter()
+                    for i in idxs: w.add_page(reader.pages[i])
+                    b = io.BytesIO(); w.write(b)
+                    zf.writestr(f"split_part_{idx}_{part}.pdf", b.getvalue())
+            elif mode == "Every page":
+                for i,pg in enumerate(reader.pages, start=1):
+                    w=PdfWriter(); w.add_page(pg)
+                    b=io.BytesIO(); w.write(b)
+                    zf.writestr(f"page_{i}.pdf", b.getvalue())
+            else:
+                w=PdfWriter(); part=1
+                for i,pg in enumerate(reader.pages, start=1):
+                    w.add_page(pg)
+                    b=io.BytesIO(); w.write(b)
+                    if b.tell() >= size_mb*1024*1024:
+                        zf.writestr(f"part_{part}.pdf", b.getvalue()); part+=1; w=PdfWriter()
+                if len(w.pages)>0:
+                    b=io.BytesIO(); w.write(b); zf.writestr(f"part_{part}.pdf", b.getvalue())
+        mem.seek(0)
+        return _send_bytes(mem.getvalue(), "splits.zip", "application/zip")
+    finally:
+        try: os.remove(p)
+        except: pass
 
-        with subtabs[0]:
-            st.markdown("### Page Management")
-            st.info("Coming soon...")
+@app.post("/tool/rotate")
+def rotate_pdf():
+    fs = request.files.get("pdf")
+    if not fs: return "No PDF", 400
+    deg = int(request.form.get("deg","90"))
+    p = _save_upload(fs, suffix=".pdf")
+    try:
+        r = PdfReader(p); w=PdfWriter()
+        for pg in r.pages:
+            pg.rotate(deg); w.add_page(pg)
+        out = io.BytesIO(); w.write(out)
+        return _send_bytes(out.getvalue(), "rotated.pdf", "application/pdf")
+    finally:
+        try: os.remove(p)
+        except: pass
 
-        with subtabs[1]:
-            st.markdown("### Visual Edit")
-            st.info("Coming soon...")
+@app.post("/tool/reorder")
+def reorder_pdf():
+    fs = request.files.get("pdf")
+    if not fs: return "No PDF", 400
+    keep = (request.form.get("keep") or "").strip()
+    order = (request.form.get("order") or "").strip()
+    p = _save_upload(fs, suffix=".pdf")
+    try:
+        r = PdfReader(p); w=PdfWriter()
+        total = len(r.pages)
+        keep_idxs = _parse_ranges(keep, total) if keep else list(range(total))
+        if order:
+            chosen = [int(x.strip())-1 for x in order.split(",") if x.strip().isdigit()]
+        else:
+            chosen = keep_idxs
+        for i in chosen:
+            if 0<=i<total and i in keep_idxs:
+                w.add_page(r.pages[i])
+        out = io.BytesIO(); w.write(out)
+        return _send_bytes(out.getvalue(), "reordered.pdf", "application/pdf")
+    finally:
+        try: os.remove(p)
+        except: pass
 
-        with subtabs[2]:
-            st.markdown("### Annotations")
-            st.info("Coming soon...")
+@app.post("/tool/extract-text")
+def extract_text():
+    fs = request.files.get("pdf")
+    if not fs: return "No PDF", 400
+    mode = request.form.get("mode","Plain text")
+    ranges = (request.form.get("ranges") or "").strip()
+    search = (request.form.get("search") or "").strip()
+    p = _save_upload(fs, suffix=".pdf")
+    try:
+        doc = fitz.open(p)
+        idxs = _parse_ranges(ranges, len(doc)) if ranges else list(range(len(doc)))
+        out_texts=[]
+        for i in idxs:
+            m = "text" if mode=="Plain text" else ("blocks" if mode=="Preserve layout" else "raw")
+            text = doc[i].get_text(m)
+            if search and search.lower() in text.lower():
+                text = re.sub(re.escape(search), lambda m: f">>>{m.group(0)}<<<", text, flags=re.IGNORECASE)
+            out_texts.append(f"--- Page {i+1} ---\n{text}")
+        final = "\n\n".join(out_texts).encode("utf-8")
+        return _send_bytes(final, "extracted.txt", "text/plain")
+    finally:
+        try: os.remove(p)
+        except: pass
 
-        with subtabs[3]:
-            st.markdown("### Media")
-            st.info("Coming soon...")
+@app.post("/tool/compress")
+def compress_pdf():
+    fs = request.files.get("pdf")
+    if not fs: return "No PDF", 400
+    preset = request.form.get("preset","Standard")
+    quality = int(request.form.get("quality","85"))
+    target_dpi = request.form.get("target_dpi","").strip()
+    target_dpi = int(target_dpi) if target_dpi else None
+    strip_meta = "strip_meta" in request.form
+    linearize = "linearize" in request.form
+    clean_xref = "clean_xref" in request.form
 
-        with subtabs[4]:
-            st.markdown("### Links & Signatures")
-            st.info("Coming soon...")
+    src = fitz.open(stream=fs.read(), filetype="pdf")
+    if preset == "Light (best quality)":
+        quality = 90; target_dpi = target_dpi or 300
+    elif preset == "Standard":
+        quality = 85; target_dpi = target_dpi or 200
+    elif preset == "Strong":
+        quality = 75; target_dpi = target_dpi or 150
+    elif preset == "Extreme":
+        quality = 60; target_dpi = target_dpi or 100
+    elif preset == "Lossless (no image recompress)":
+        target_dpi = None; quality = None
 
-        with subtabs[5]:
-            st.markdown("### Scanned PDF Editor")
-            st.info("Coming soon...")
-# ---------- Tab 8: Compress PDF ----------
-with tabs[7]:
-    st.subheader("Compress PDF (quality-first)")
+    if strip_meta:
+        try: src.set_metadata({})
+        except: pass
 
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="compress_pdf")
-    if pdf:
-        in_bytes = pdf.getbuffer()
-        orig_size = len(in_bytes)
-
-        preset = st.selectbox(
-            "Compression preset",
-            ["Light (best quality)", "Standard", "Strong", "Extreme", "Lossless (no image recompress)"],
-            index=1
-        )
-
-        with st.expander("Advanced options"):
-            quality = st.slider("JPEG quality (when recompressing images)", 50, 95, 85)
-            target_dpi = st.selectbox("Downsample images to (DPI)", [None, 300, 200, 150, 100], index=2,
-                                      help="Only downsamples if an image exceeds its display need.")
-            strip_meta = st.checkbox("Strip document metadata", value=True)
-            linearize = st.checkbox("Linearize for web (Fast Web View)", value=True)
-            clean_xref = st.checkbox("Aggressive clean (garbage=3, clean=True)", value=True)
-
-        # Apply sensible defaults from preset
-        if preset == "Light (best quality)":
-            quality = 90;  target_dpi = target_dpi or 300
-        elif preset == "Standard":
-            quality = 85;  target_dpi = target_dpi or 200
-        elif preset == "Strong":
-            quality = 75;  target_dpi = target_dpi or 150
-        elif preset == "Extreme":
-            quality = 60;  target_dpi = target_dpi or 100
-        elif preset == "Lossless (no image recompress)":
-            target_dpi = None; quality = None
-
-        def _human(n):
-            for u in ["B","KB","MB","GB","TB"]:
-                if n < 1024: return f"{n:.2f} {u}"
-                n /= 1024
-            return f"{n:.2f} PB"
-
-        if st.button("Compress"):
-            src = fitz.open(stream=in_bytes, filetype="pdf")
-
-            if strip_meta:
-                try: src.set_metadata({})
+    if quality is not None:
+        for page in src:
+            imgs = page.get_images(full=True)
+            if not imgs: continue
+            page_w_in = page.rect.width/72.0
+            page_h_in = page.rect.height/72.0
+            for xref, *_ in imgs:
+                try:
+                    info = src.extract_image(xref)
+                    img_bytes = info["image"]; w_px, h_px = info.get("width"), info.get("height")
+                except: continue
+                new_w,new_h = w_px,h_px
+                if target_dpi:
+                    max_w = int(page_w_in*target_dpi*1.2+0.5)
+                    max_h = int(page_h_in*target_dpi*1.2+0.5)
+                    if w_px>max_w or h_px>max_h:
+                        scale = max(min(min(max_w/w_px, max_h/h_px),1.0),0.05)
+                        new_w = max(int(w_px*scale),1); new_h=max(int(h_px*scale),1)
+                try:
+                    pil = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                    if (new_w,new_h)!=(w_px,h_px):
+                        pil = pil.resize((new_w,new_h), Image.LANCZOS)
+                    buf = io.BytesIO()
+                    pil.save(buf, format="JPEG", quality=int(quality), optimize=True)
+                    src.update_image(xref, stream=buf.getvalue())
                 except: pass
 
-            # Recompress/downsample embedded images only (keep text/vectors)
-            if quality is not None:
-                for page in src:
-                    imgs = page.get_images(full=True)
-                    if not imgs: continue
+    out_buf = io.BytesIO()
+    save_kwargs = dict(deflate=True)
+    if linearize: save_kwargs["linear"] = True
+    if clean_xref: save_kwargs.update(clean=True, garbage=3)
+    src.save(out_buf, **save_kwargs); src.close()
+    return _send_bytes(out_buf.getvalue(), "compressed.pdf", "application/pdf")
 
-                    page_w_in = page.rect.width / 72.0
-                    page_h_in = page.rect.height / 72.0
+@app.post("/tool/protect")
+def protect_pdf():
+    fs = request.files.get("pdf")
+    if not fs: return "No PDF", 400
+    user_pwd = request.form.get("user_pwd") or ""
+    owner_pwd = request.form.get("owner_pwd") or user_pwd
+    allow_print = "allow_print" in request.form
+    allow_copy  = "allow_copy" in request.form
+    allow_annot = "allow_annot" in request.form
+    encryption  = request.form.get("encryption","AES-256")
 
-                    for xref, *_rest in imgs:
-                        try:
-                            info = src.extract_image(xref)
-                            img_bytes = info["image"]
-                            w_px, h_px = info.get("width"), info.get("height")
-                        except Exception:
-                            continue
+    p = _save_upload(fs, suffix=".pdf")
+    try:
+        r = PdfReader(p); w = PdfWriter()
+        for pg in r.pages: w.add_page(pg)
+        perms = {"print": allow_print, "copy": allow_copy, "annotate": allow_annot}
+        # pypdf API varies by version; try modern signature:
+        try:
+            from pypdf import EncryptionAlgorithm
+            algo = (EncryptionAlgorithm.AES_256 if "256" in encryption
+                    else EncryptionAlgorithm.AES_128 if "AES-128"==encryption
+                    else EncryptionAlgorithm.RC4_128 if "RC4-128"==encryption
+                    else EncryptionAlgorithm.RC4_40)
+            w.encrypt(user_password=user_pwd or None, owner_password=owner_pwd or None,
+                      permissions=perms, algorithm=algo)
+        except Exception:
+            # fallback older api
+            w.encrypt(user_password=user_pwd or None, owner_password=owner_pwd or None, use_128bit=("128" in encryption))
+        out = io.BytesIO(); w.write(out)
+        return _send_bytes(out.getvalue(), "protected.pdf", "application/pdf")
+    finally:
+        try: os.remove(p)
+        except: pass
 
-                        # Determine if downsampling is needed
-                        new_w, new_h = w_px, h_px
-                        if target_dpi:
-                            max_w = int(page_w_in * target_dpi * 1.2 + 0.5)
-                            max_h = int(page_h_in * target_dpi * 1.2 + 0.5)
-                            if w_px > max_w or h_px > max_h:
-                                scale = max(min(min(max_w / w_px, max_h / h_px), 1.0), 0.05)
-                                new_w = max(int(w_px * scale), 1)
-                                new_h = max(int(h_px * scale), 1)
-
-                        try:
-                            pil = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-                            if (new_w, new_h) != (w_px, h_px):
-                                pil = pil.resize((new_w, new_h), Image.LANCZOS)
-                            buf = io.BytesIO()
-                            pil.save(buf, format="JPEG", quality=int(quality), optimize=True)
-                            src.update_image(xref, stream=buf.getvalue())
-                        except Exception:
-                            # If recompress fails for a particular image, leave it as-is
-                            pass
-
-            out_buf = io.BytesIO()
-            save_kwargs = dict(deflate=True)
-            if linearize: save_kwargs["linear"] = True
-            if clean_xref: save_kwargs.update(clean=True, garbage=3)
-            src.save(out_buf, **save_kwargs); src.close()
-
-            new_bytes = out_buf.getvalue()
-            new_size = len(new_bytes)
-            saved = max(orig_size - new_size, 0)
-            pct = (saved / orig_size * 100.0) if orig_size else 0.0
-
-            st.success(f"Original: {_human(orig_size)} → Compressed: {_human(new_size)}  (saved {pct:.1f}%)")
-            _download("Download compressed.pdf", new_bytes, "compressed.pdf", "application/pdf")
-
-# ---------- Tab 9: Protect PDF ----------
-with tabs[8]:
-    st.subheader("Protect PDF (Password + Permissions)")
-
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="protect_pdf")
-    if pdf:
-        path = _save_upload(pdf, suffix=".pdf")
-        r = PdfReader(path)
-
-        st.markdown("### Current Status")
-        if getattr(r, "is_encrypted", False):
-            st.warning("This PDF is already encrypted.")
-        else:
-            st.success("This PDF is not encrypted yet.")
-
-        # Inputs
-        user_pwd = st.text_input("User Password (to open PDF)", type="password")
-        owner_pwd = st.text_input("Owner Password (to control permissions)", type="password")
-
-        st.markdown("### Permissions (check to allow)")
-        allow_print = st.checkbox("Allow printing", value=True)
-        allow_copy = st.checkbox("Allow copy text/images", value=True)
-        allow_annot = st.checkbox("Allow annotations", value=True)
-
-        encryption = st.selectbox("Encryption strength", ["AES-256", "AES-128", "RC4-128", "RC4-40"], index=0)
-
-        if st.button("Apply Protection"):
-            w = PdfWriter()
-            for pg in r.pages:
-                w.add_page(pg)
-
-            # Permissions bitmask
-            perms = {
-                "print": allow_print,
-                "copy": allow_copy,
-                "annotate": allow_annot,
-            }
-
-            # Encrypt
+@app.post("/tool/unlock")
+def unlock_pdf():
+    files = request.files.getlist("pdfs")
+    password = request.form.get("password") or ""
+    if not files or not password:
+        return "Upload PDFs and provide password", 400
+    tmpdir = tempfile.mkdtemp(prefix="unlock_")
+    outs = []
+    try:
+        for fs in files:
+            p = _save_upload(fs, suffix=".pdf")
             try:
-                w.encrypt(
-                    user_password=user_pwd if user_pwd else None,
-                    owner_password=owner_pwd if owner_pwd else user_pwd,
-                    use_128bit=("128" in encryption),
-                    permissions=perms
-                )
-                out = io.BytesIO()
-                w.write(out)
-                _download("Download protected.pdf", out.getvalue(), "protected.pdf", "application/pdf")
-                st.success("PDF protected successfully!")
-            except Exception as e:
-                st.error(f"Failed to protect: {e}")
+                r = PdfReader(p)
+                try:
+                    ok = r.decrypt(password)  # legacy api
+                    if ok == 0:
+                        continue
+                except Exception:
+                    # newer pypdf auto-opens with .decrypt not available; if not encrypted, pass
+                    pass
+                w = PdfWriter()
+                for pg in r.pages: w.add_page(pg)
+                outp = os.path.join(tmpdir, os.path.splitext(secure_filename(fs.filename))[0] + "_unlocked.pdf")
+                with open(outp,"wb") as f: w.write(f)
+                outs.append(outp)
+            finally:
+                try: os.remove(p)
+                except: pass
+        if not outs:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return "No files unlocked (wrong password or not encrypted).", 400
+        if len(outs)==1:
+            data = open(outs[0],"rb").read()
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return _send_bytes(data, os.path.basename(outs[0]), "application/pdf")
+        mem=io.BytesIO()
+        with zipfile.ZipFile(mem,"w") as zf:
+            for pth in outs:
+                zf.write(pth, os.path.basename(pth))
+        mem.seek(0); shutil.rmtree(tmpdir, ignore_errors=True)
+        return _send_bytes(mem.getvalue(), "unlocked.zip", "application/zip")
+    except Exception as e:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        return f"Failed: {e}", 500
 
-# ---------- Tab 10: Unlock PDF ----------
-with tabs[9]:
-    st.subheader("Unlock PDF (Remove Password)")
-
-    pdfs = st.file_uploader("Upload one or more encrypted PDFs", type=["pdf"], accept_multiple_files=True, key="unlock_pdf")
-    password = st.text_input("Password", type="password")
-
-    if pdfs and password and st.button("Unlock Now"):
-        tmpdir = tempfile.mkdtemp(prefix="unlock_")
-        unlocked_files = []
-
-        for uf in pdfs:
-            path = _save_upload(uf, suffix=".pdf")
-            reader = PdfReader(path)
-
-            if not getattr(reader, "is_encrypted", False):
-                st.info(f"{uf.name}: Not encrypted, skipped.")
-                continue
-
-            try:
-                res = reader.decrypt(password)
-                if res == 0:
-                    st.error(f"{uf.name}: Incorrect password.")
-                    continue
-
-                writer = PdfWriter()
-                for pg in reader.pages:
-                    writer.add_page(pg)
-
-                out_path = os.path.join(tmpdir, uf.name.replace(".pdf","_unlocked.pdf"))
-                with open(out_path, "wb") as f:
-                    writer.write(f)
-                unlocked_files.append(out_path)
-                st.success(f"{uf.name}: Unlocked!")
-
-            except Exception as e:
-                st.error(f"{uf.name}: Failed — {e}")
-
-        if unlocked_files:
-            if len(unlocked_files) == 1:
-                out = _to_bytes(unlocked_files[0])
-                _download("Download unlocked.pdf", out, os.path.basename(unlocked_files[0]), "application/pdf")
-            else:
-                mem = io.BytesIO()
-                with zipfile.ZipFile(mem, "w") as zf:
-                    for p in unlocked_files:
-                        zf.write(p, os.path.basename(p))
-                mem.seek(0)
-                _download("Download unlocked.zip", mem.getvalue(), "unlocked.zip", "application/zip")
-
+@app.post("/tool/pdf-to-images")
+def pdf_to_images():
+    pdfs = request.files.getlist("pdfs")
+    if not pdfs: return "No PDFs", 400
+    dpi = int(request.form.get("dpi","300"))
+    fmt = request.form.get("fmt","PNG")
+    quality = int(request.form.get("quality","95"))
+    mode = request.form.get("mode","One image per page (ZIP)")
+    tmpdir = tempfile.mkdtemp(prefix="pdf2img_")
+    try:
+        for fs in pdfs:
+            p = _save_upload(fs, suffix=".pdf")
+            doc = fitz.open(p)
+            base = os.path.join(tmpdir, os.path.splitext(secure_filename(fs.filename))[0])
+            os.makedirs(base, exist_ok=True)
+            images=[]
+            for i,page in enumerate(doc, start=1):
+                pix = page.get_pixmap(dpi=dpi, alpha=False)
+                if fmt=="PNG":
+                    data = pix.tobytes("png"); ext="png"
+                elif fmt=="JPEG":
+                    data = pix.tobytes("jpg", jpg_quality=quality); ext="jpg"
+                else:
+                    pilimg = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    buf = io.BytesIO(); pilimg.save(buf, format="WEBP", quality=quality); data=buf.getvalue(); ext="webp"
+                outp = os.path.join(base, f"page_{i}.{ext}")
+                with open(outp,"wb") as f: f.write(data)
+                images.append(Image.open(io.BytesIO(data)))
+            if mode.startswith("All pages stitched") and images:
+                widths, heights = zip(*(im.size for im in images))
+                total_h = sum(heights); max_w = max(widths)
+                stitched = Image.new("RGB", (max_w, total_h), "white")
+                y=0
+                for im in images:
+                    stitched.paste(im,(0,y)); y += im.height
+                stitched_path = os.path.join(base, f"{os.path.basename(base)}_stitched.{ 'jpg' if fmt=='JPEG' else ('webp' if fmt=='WebP' else 'png') }")
+                if fmt=="PNG": stitched.save(stitched_path, format="PNG")
+                elif fmt=="JPEG": stitched.save(stitched_path, format="JPEG", quality=quality)
+                else: stitched.save(stitched_path, format="WEBP", quality=quality)
+        mem = io.BytesIO()
+        with zipfile.ZipFile(mem,"w") as zf:
+            for root,_,files in os.walk(tmpdir):
+                for f in files:
+                    full = os.path.join(root,f)
+                    zf.write(full, os.path.relpath(full, tmpdir))
+        mem.seek(0)
+        return _send_bytes(mem.getvalue(), "images.zip", "application/zip")
+    finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
-# ---------- Tab 11: PDF → Images (High Quality) ----------
-with tabs[10]:
-    st.subheader("PDF → Images (High Quality)")
+@app.post("/tool/pdf-to-docx")
+def pdf_to_docx():
+    fs = request.files.get("pdf")
+    if not fs: return "No PDF", 400
+    start = max(1, int(request.form.get("start","1")))
+    end = int(request.form.get("end","0"))
+    keep_images = "keep_images" in request.form
+    p = _save_upload(fs, suffix=".pdf")
+    out_dir = tempfile.mkdtemp(prefix="pdf2docx_")
+    out_path = os.path.join(out_dir, "converted.docx")
+    try:
+        cv = Pdf2DocxConverter(p)
+        cv.convert(out_path, start=start-1, end=None if end==0 else end-1, retain_image=keep_images)
+        cv.close()
+        data = open(out_path, "rb").read()
+        shutil.rmtree(out_dir, ignore_errors=True); os.remove(p)
+        return _send_bytes(data, "converted.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    except Exception as e:
+        shutil.rmtree(out_dir, ignore_errors=True)
+        try: os.remove(p)
+        except: pass
+        return f"Conversion failed: {e}", 500
 
-    pdfs = st.file_uploader("Upload one or more PDFs", type=["pdf"], accept_multiple_files=True, key="pdf2img_hq")
-
-    if pdfs:
-        dpi = st.slider("Export DPI (higher = sharper text)", 150, 600, 300, step=50)
-        fmt = st.selectbox("Image format", ["PNG (lossless, best quality)", "JPEG (compressed)", "WebP (compressed)"])
-        if "JPEG" in fmt or "WebP" in fmt:
-            quality = st.slider("Quality", 80, 100, 95)
-
-        mode = st.radio("Export mode", ["One image per page (ZIP)", "All pages stitched vertically (one image)"])
-
-        if st.button("Convert to Images (High Quality)"):
-            tmpdir = tempfile.mkdtemp(prefix="pdf2img_hq_")
-            results = []
-
-            for uf in pdfs:
-                path = _save_upload(uf, suffix=".pdf")
-                doc = fitz.open(path)
-                subdir = os.path.join(tmpdir, os.path.splitext(uf.name)[0])
-                os.makedirs(subdir, exist_ok=True)
-
-                images = []
-                for i, page in enumerate(doc, start=1):
-                    # Use selected DPI for export
-                    pix = page.get_pixmap(dpi=dpi, alpha=False)
-
-                    if "PNG" in fmt:
-                        imgdata = pix.tobytes("png")
-                        ext = "png"
-                    elif "JPEG" in fmt:
-                        imgdata = pix.tobytes("jpg", jpg_quality=quality)
-                        ext = "jpg"
-                    else:  # WebP
-                        pilimg = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                        buf = io.BytesIO()
-                        pilimg.save(buf, format="WEBP", quality=quality)
-                        imgdata = buf.getvalue()
-                        ext = "webp"
-
-                    outpath = os.path.join(subdir, f"page_{i}.{ext}")
-                    with open(outpath, "wb") as f:
-                        f.write(imgdata)
-
-                    # Collect PIL images for stitching mode
-                    images.append(Image.open(io.BytesIO(imgdata)))
-
-                # If stitched mode, merge vertically
-                if mode == "All pages stitched vertically (one image)" and images:
-                    widths, heights = zip(*(im.size for im in images))
-                    total_height = sum(heights)
-                    max_width = max(widths)
-                    stitched = Image.new("RGB", (max_width, total_height), "white")
-                    y_offset = 0
-                    for im in images:
-                        stitched.paste(im, (0, y_offset))
-                        y_offset += im.height
-                    outpath = os.path.join(subdir, f"{os.path.splitext(uf.name)[0]}_stitched.{ext}")
-                    stitched.save(outpath, quality=quality if "JPEG" in fmt or "WebP" in fmt else None)
-
-            # Zip results
-            mem = io.BytesIO()
-            with zipfile.ZipFile(mem, "w") as zf:
-                for root, _, files in os.walk(tmpdir):
-                    for f in files:
-                        full = os.path.join(root, f)
-                        arc = os.path.relpath(full, tmpdir)
-                        zf.write(full, arcname=arc)
-            mem.seek(0)
-
-            _download("Download images.zip", mem.getvalue(), "images.zip", "application/zip")
-            shutil.rmtree(tmpdir, ignore_errors=True)
-# ---------- Tab 12: PDF → DOCX ----------
-with tabs[11]:
-    st.subheader("PDF → DOCX (Editable Word)")
-
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="pdf2docx_pdf")
-    if pdf:
-        path = _save_upload(pdf, suffix=".pdf")
-        doc = fitz.open(path)
-
-        st.markdown(f"**This PDF has {len(doc)} pages.**")
-
-        # Preview thumbnails
-        st.markdown("### Preview first few pages")
-        cols = st.columns(5)
-        for i, page in enumerate(doc[:min(5, len(doc))], start=1):
-            thumb = page.get_pixmap(dpi=40).tobytes("png")
-            with cols[(i-1) % 5]:
-                st.image(thumb, caption=f"Page {i}", use_column_width=True)
-
-        # Options
-        start = st.number_input("Start page (1-based)", 1, len(doc), 1)
-        end = st.number_input("End page (0 = all)", 0, len(doc), 0)
-        keep_images = st.checkbox("Keep images in DOCX", value=True)
-
-        if st.button("Convert to DOCX"):
-            from pdf2docx import Converter
-            out_dir = tempfile.mkdtemp(prefix="pdf2docx_")
-            out_path = os.path.join(out_dir, "converted.docx")
-
+@app.post("/tool/office-to-pdf")
+def office_to_pdf():
+    files = request.files.getlist("files")
+    if not files: return "No files", 400
+    tmpdir = tempfile.mkdtemp(prefix="office2pdf_")
+    pdf_paths = []
+    try:
+        for fs in files:
+            fname = secure_filename(fs.filename)
+            ext = fname.rsplit(".",1)[-1].lower()
+            in_path = _save_upload(fs, suffix=f".{ext}")
+            out_path = os.path.join(tmpdir, os.path.splitext(fname)[0] + ".pdf")
             try:
-                cv = Converter(path)
-                cv.convert(out_path, start=start-1, end=None if end==0 else end-1, 
-                           retain_image=keep_images)
-                cv.close()
-
-                # Return DOCX
-                with open(out_path, "rb") as f:
-                    data = f.read()
-                _download("Download converted.docx", data, "converted.docx",
-                          "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-                st.success("DOCX conversion completed!")
-
-            except Exception as e:
-                st.error(f"Conversion failed: {e}")
-                st.info("If this is a scanned PDF, try enabling OCR in the advanced version.")
-
-# ----------------
-# PDF → DOCX
-# ----------------
-with tabs[11]:
-    st.subheader("PDF → DOCX (best-effort)")
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="pdf2docx")
-    start = st.number_input("Start page (1-based)", min_value=1, value=1)
-    end = st.number_input("End page (0 = all)", min_value=0, value=0)
-    if pdf and st.button("Convert"):
-        in_path = _save_upload(pdf, suffix=".pdf")
-        out_dir = tempfile.mkdtemp(prefix="pdf2docx_")
-        out_path = os.path.join(out_dir, "converted.docx")
-        try:
-            cv = Pdf2DocxConverter(in_path)
-            if end == 0:
-                cv.convert(out_path, start=start-1, end=None)
-            else:
-                cv.convert(out_path, start=start-1, end=end-1)
-            cv.close()
-            _download("Download converted.docx", _to_bytes(out_path), "converted.docx",
-                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-        except Exception:
-            st.error("Conversion failed. (Scanned/complex PDFs are hard for open-source tools.)")
-        finally:
-            shutil.rmtree(out_dir, ignore_errors=True)
-# ---------- Tab 13: Watermark ----------
-with tabs[12]:
-    st.subheader("Add Watermark")
-
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="wm_pdf")
-    wm_type = st.radio("Watermark type", ["Text", "Image"])
-
-    if pdf:
-        path = _save_upload(pdf, suffix=".pdf")
-        doc = fitz.open(path)
-
-        # Options
-        if wm_type == "Text":
-            text = st.text_input("Watermark text", "CONFIDENTIAL")
-            color = st.color_picker("Text color", "#FF0000")
-            opacity = st.slider("Opacity (%)", 10, 90, 20)
-            size = st.slider("Font size", 20, 120, 60)
-            angle = st.slider("Rotation angle", 0, 360, 45)
-            pos = st.selectbox("Position", ["Center", "Top-left", "Top-right", "Bottom-left", "Bottom-right", "Diagonal Tiled"])
-        else:
-            wm_img = st.file_uploader("Upload image", type=["png","jpg"])
-            opacity = st.slider("Opacity (%)", 10, 90, 50)
-            size = st.slider("Relative size (%)", 10, 100, 40)
-            pos = st.selectbox("Position", ["Center", "Top-left", "Top-right", "Bottom-left", "Bottom-right", "Diagonal Tiled"])
-
-        pages = st.text_input("Apply to pages (e.g., 1-3,5; blank = all)")
-        if st.button("Apply Watermark"):
-            idxs = _parse_ranges(pages, len(doc)) if pages.strip() else list(range(len(doc)))
-
-            for i in idxs:
-                page = doc[i]
-                rect = page.rect
-
-                if wm_type == "Text":
-                    rgb = tuple(int(color[j:j+2], 16)/255 for j in (1,3,5))
-                    if pos == "Diagonal Tiled":
-                        # Tile across page diagonally
-                        step = rect.height / 3
-                        for y in range(0, int(rect.height), int(step)):
-                            page.insert_text(
-                                (rect.width/2, y),
-                                text,
-                                fontsize=size,
-                                rotate=angle,
-                                color=rgb,
-                                fill_opacity=opacity/100,
-                                align=1
-                            )
-                    else:
-                        coords = {
-                            "Center": rect.center,
-                            "Top-left": (rect.x0+50, rect.y0+80),
-                            "Top-right": (rect.x1-200, rect.y0+80),
-                            "Bottom-left": (rect.x0+50, rect.y1-50),
-                            "Bottom-right": (rect.x1-200, rect.y1-50)
-                        }
-                        page.insert_text(
-                            coords.get(pos, rect.center),
-                            text,
-                            fontsize=size,
-                            rotate=angle,
-                            color=rgb,
-                            fill_opacity=opacity/100,
-                            align=1
-                        )
+                if ext in ["docx","odt"]:
+                    import pypandoc
+                    pypandoc.convert_file(in_path, "pdf", outputfile=out_path, extra_args=["--standalone"])
+                elif ext in ["xlsx","ods"]:
+                    import pandas as pd
+                    from reportlab.platypus import SimpleDocTemplate, Table
+                    from reportlab.lib.pagesizes import A4
+                    xl = pd.ExcelFile(in_path)
+                    doc = SimpleDocTemplate(out_path, pagesize=A4)
+                    elements=[]
+                    for sheet in xl.sheet_names:
+                        df = xl.parse(sheet)
+                        data = [df.columns.tolist()] + df.values.tolist()
+                        elements.append(Table(data))
+                    doc.build(elements)
+                elif ext in ["pptx","odp"]:
+                    from pptx import Presentation
+                    prs = Presentation(in_path)
+                    pdf = fitz.open()
+                    for _ in prs.slides:
+                        page = pdf.new_page(width=800, height=600)
+                        page.insert_text((40, 300), "[Slide content placeholder]")
+                    pdf.save(out_path); pdf.close()
+                elif ext == "txt":
+                    from reportlab.platypus import SimpleDocTemplate, Paragraph
+                    from reportlab.lib.styles import getSampleStyleSheet
+                    doc = SimpleDocTemplate(out_path)
+                    styles = getSampleStyleSheet()
+                    text = open(in_path,"rb").read().decode("utf-8", errors="ignore")
+                    paras = [Paragraph(line, styles["Normal"]) for line in text.split("\n")]
+                    doc.build(paras)
+                elif ext in ["png","jpg","jpeg"]:
+                    im = Image.open(in_path).convert("RGB")
+                    im.save(out_path, "PDF")
                 else:
-                    if not wm_img:
-                        st.error("Please upload a watermark image.")
-                        break
-                    img_path = _save_upload(wm_img)
-                    img = Image.open(img_path)
-                    w, h = img.size
-                    scale = (size/100)
-                    w, h = int(rect.width*scale), int(rect.height*scale)
+                    raise RuntimeError(f"Unsupported: {ext}")
+                pdf_paths.append(out_path)
+            except Exception as e:
+                # Skip file on error; continue with others
+                pass
+            finally:
+                try: os.remove(in_path)
+                except: pass
+        if not pdf_paths:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return "No files converted (missing system tools for some formats?)", 400
+        if len(pdf_paths)==1:
+            data=open(pdf_paths[0],"rb").read()
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return _send_bytes(data, os.path.basename(pdf_paths[0]), "application/pdf")
+        mem=io.BytesIO()
+        with zipfile.ZipFile(mem,"w") as zf:
+            for p in pdf_paths:
+                zf.write(p, os.path.basename(p))
+        mem.seek(0); shutil.rmtree(tmpdir, ignore_errors=True)
+        return _send_bytes(mem.getvalue(), "converted_pdfs.zip", "application/zip")
+    except Exception as e:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        return f"Failed: {e}", 500
+
+@app.post("/tool/watermark")
+def watermark():
+    fs = request.files.get("pdf")
+    if not fs: return "No PDF", 400
+    wm_type = request.form.get("wm_type","Text")
+    text = request.form.get("text","CONFIDENTIAL")
+    color = request.form.get("color","#FF0000")
+    opacity = int(request.form.get("opacity","20"))
+    size = int(request.form.get("size","60"))
+    angle = int(request.form.get("angle","45"))
+    pos = request.form.get("pos","Center")
+    pages_str = (request.form.get("pages") or "").strip()
+    wm_img = request.files.get("wm_img")
+
+    p = _save_upload(fs, suffix=".pdf")
+    try:
+        doc = fitz.open(p)
+        idxs = _parse_ranges(pages_str, len(doc)) if pages_str else list(range(len(doc)))
+        for i in idxs:
+            page = doc[i]; rect = page.rect
+            if wm_type=="Text":
+                rgb = tuple(int(color[j:j+2],16)/255 for j in (1,3,5))
+                if pos=="Diagonal Tiled":
+                    step = rect.height/3
+                    y = 0
+                    while y < rect.height:
+                        page.insert_text((rect.width/2, y), text, fontsize=size, rotate=angle,
+                                         color=rgb, fill_opacity=opacity/100, align=1)
+                        y += step
+                else:
+                    coords = {
+                        "Center": rect.center,
+                        "Top-left": (rect.x0+50, rect.y0+80),
+                        "Top-right": (rect.x1-200, rect.y0+80),
+                        "Bottom-left": (rect.x0+50, rect.y1-50),
+                        "Bottom-right": (rect.x1-200, rect.y1-50)
+                    }
+                    page.insert_text(coords.get(pos, rect.center), text, fontsize=size, rotate=angle,
+                                     color=rgb, fill_opacity=opacity/100, align=1)
+            else:
+                if not wm_img: continue
+                img_path = _save_upload(wm_img)
+                try:
+                    scale = size/100.0
+                    w = int(rect.width*scale); h=int(rect.height*scale)
                     pos_map = {
                         "Center": fitz.Rect(rect.width/2-w/2, rect.height/2-h/2, rect.width/2+w/2, rect.height/2+h/2),
-                        "Top-left": fitz.Rect(50, 50, 50+w, 50+h),
+                        "Top-left": fitz.Rect(50,50,50+w,50+h),
                         "Top-right": fitz.Rect(rect.width-w-50, 50, rect.width-50, 50+h),
                         "Bottom-left": fitz.Rect(50, rect.height-h-50, 50+w, rect.height-50),
                         "Bottom-right": fitz.Rect(rect.width-w-50, rect.height-h-50, rect.width-50, rect.height-50),
                     }
                     target = pos_map.get(pos, rect)
-                    page.insert_image(target, filename=img_path, overlay=True, keep_proportion=True)
+                    page.insert_image(target, filename=img_path, overlay=True, keep_proportion=True, opacity=opacity/100)
+                finally:
+                    try: os.remove(img_path)
+                    except: pass
+        out = io.BytesIO(); doc.save(out, deflate=True); doc.close()
+        return _send_bytes(out.getvalue(), "watermarked.pdf", "application/pdf")
+    finally:
+        try: os.remove(p)
+        except: pass
 
-            # Save output
-            out = io.BytesIO()
-            doc.save(out, deflate=True)
-            doc.close()
-            _download("Download watermarked.pdf", out.getvalue(), "watermarked.pdf", "application/pdf")
+@app.post("/tool/page-numbers")
+def page_numbers():
+    fs = request.files.get("pdf")
+    if not fs: return "No PDF", 400
+    ranges = (request.form.get("ranges") or "").strip()
+    style = request.form.get("style","1, 2, 3")
+    template = request.form.get("template","Page {n} of {total}")
+    pos_v = request.form.get("pos_v","Bottom")
+    pos_h = request.form.get("pos_h","Center")
+    fontsize = int(request.form.get("fontsize","12"))
+    color = request.form.get("color","#000000")
+    opacity = int(request.form.get("opacity","80"))
 
-# ---------- Tab 14: Page Numbers ----------
-with tabs[13]:
-    st.subheader("Add Page Numbers")
+    p = _save_upload(fs, suffix=".pdf")
+    try:
+        doc = fitz.open(p); total = len(doc)
+        idxs = _parse_ranges(ranges, total) if ranges else list(range(total))
+        def fmt(n):
+            if style == "1, 2, 3": return str(n)
+            if style == "01, 02, 03": return f"{n:02d}"
+            if style == "i, ii, iii": return _roman(n).lower()
+            if style == "I, II, III": return _roman(n)
+            if style == "a, b, c":    return chr(96+n)
+            if style == "A, B, C":    return chr(64+n)
+            return str(n)
+        rgb = tuple(int(color[i:i+2],16)/255 for i in (1,3,5))
+        for i in idxs:
+            page = doc[i]; rect = page.rect
+            num = fmt(i+1); label = template.format(n=num, total=total)
+            x = rect.x0 + 40 if pos_h=="Left" else rect.x1-40 if pos_h=="Right" else rect.x0 + rect.width/2
+            y = rect.y1 - 30 if pos_v=="Bottom" else rect.y0 + 40
+            page.insert_text((x,y), label, fontsize=fontsize, color=rgb, fill_opacity=opacity/100,
+                             align=1 if pos_h=="Center" else 0)
+        out = io.BytesIO(); doc.save(out, deflate=True); doc.close()
+        return _send_bytes(out.getvalue(), "numbered.pdf", "application/pdf")
+    finally:
+        try: os.remove(p)
+        except: pass
 
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="pnum_pdf")
-    if pdf:
-        path = _save_upload(pdf, suffix=".pdf")
-        doc = fitz.open(path)
-
-        st.markdown(f"**This PDF has {len(doc)} pages.**")
-
-        # Options
-        ranges = st.text_input("Apply to pages (e.g. 1-3,5; blank = all)")
-        style = st.selectbox("Numbering style", ["1, 2, 3", "01, 02, 03", "i, ii, iii", "I, II, III", "a, b, c", "A, B, C"])
-        template = st.text_input("Custom template", "Page {n} of {total}")
-
-        pos_v = st.radio("Vertical position", ["Top", "Bottom"], index=1)
-        pos_h = st.radio("Horizontal position", ["Left", "Center", "Right"], index=1)
-
-        fontsize = st.slider("Font size", 8, 32, 12)
-        color = st.color_picker("Font color", "#000000")
-        opacity = st.slider("Opacity (%)", 20, 100, 80)
-
-        if st.button("Add Numbers"):
-            idxs = _parse_ranges(ranges, len(doc)) if ranges.strip() else list(range(len(doc)))
-            total = len(doc)
-
-            def format_number(n):
-                if style == "1, 2, 3":
-                    return str(n)
-                elif style == "01, 02, 03":
-                    return f"{n:02d}"
-                elif style == "i, ii, iii":
-                    return to_roman(n).lower()
-                elif style == "I, II, III":
-                    return to_roman(n)
-                elif style == "a, b, c":
-                    return chr(96+n)
-                elif style == "A, B, C":
-                    return chr(64+n)
-                return str(n)
-
-            rgb = tuple(int(color[i:i+2], 16)/255 for i in (1,3,5))
-
-            for i in idxs:
-                page = doc[i]
-                num = format_number(i+1)
-                label = template.format(n=num, total=total)
-
-                rect = page.rect
-                x = rect.x0 + 40 if pos_h == "Left" else rect.x1 - 40 if pos_h == "Right" else rect.x0 + rect.width/2
-                y = rect.y0 + 40 if pos_v == "Top" else rect.y1 - 30
-
-                page.insert_text(
-                    (x, y), label,
-                    fontsize=fontsize,
-                    color=rgb,
-                    fill_opacity=opacity/100,
-                    align=1 if pos_h=="Center" else 0
-                )
-
-            out = io.BytesIO()
-            doc.save(out, deflate=True)
-            doc.close()
-            _download("Download numbered.pdf", out.getvalue(), "numbered.pdf", "application/pdf")
-
-# ---------- Tab 15: Office → PDF ----------
-with tabs[14]:
-    st.subheader("Office → PDF (Word, Excel, PowerPoint, Text, Images)")
-
-    files = st.file_uploader("Upload Office or text/image files", 
-                             type=["docx","xlsx","pptx","txt","odt","ods","odp","png","jpg"], 
-                             accept_multiple_files=True, key="office2pdf")
-
-    if files and st.button("Convert to PDF"):
-        tmpdir = tempfile.mkdtemp(prefix="office2pdf_")
-        pdf_paths = []
-
-        for uf in files:
-            fname = uf.name
-            path = _save_upload(uf, suffix=f".{fname.split('.')[-1]}")
-
-            out_path = os.path.join(tmpdir, fname.rsplit(".",1)[0] + ".pdf")
-
-            try:
-                ext = fname.split(".")[-1].lower()
-
-                if ext in ["docx","odt"]:
-                    # DOCX to PDF
-                    import pypandoc
-                    pypandoc.convert_file(path, "pdf", outputfile=out_path, extra_args=["--standalone"])
-
-                elif ext in ["xlsx","ods"]:
-                    import pandas as pd
-                    from reportlab.platypus import SimpleDocTemplate, Table
-                    xl = pd.ExcelFile(path)
-                    doc = SimpleDocTemplate(out_path)
-                    elements = []
-                    for sheet in xl.sheet_names:
-                        df = xl.parse(sheet)
-                        elements.append(Table([df.columns.tolist()] + df.values.tolist()))
-                    doc.build(elements)
-
-                elif ext in ["pptx","odp"]:
-                    from pptx import Presentation
-                    prs = Presentation(path)
-                    pdf_doc = fitz.open()
-                    for slide in prs.slides:
-                        img = slide.shapes
-                        # (Simple: placeholder, real implementation requires render)
-                        page = pdf_doc.new_page(width=800, height=600)
-                        page.insert_text((50,300),"[Slide content here]")
-                    pdf_doc.save(out_path)
-
-                elif ext == "txt":
-                    from reportlab.platypus import SimpleDocTemplate, Paragraph
-                    from reportlab.lib.styles import getSampleStyleSheet
-                    text = uf.read().decode("utf-8")
-                    doc = SimpleDocTemplate(out_path)
-                    styles = getSampleStyleSheet()
-                    doc.build([Paragraph(line, styles["Normal"]) for line in text.split("\n")])
-
-                elif ext in ["png","jpg"]:
-                    img = Image.open(path)
-                    pdf_bytes = io.BytesIO()
-                    img.convert("RGB").save(out_path, "PDF")
-
-                pdf_paths.append(out_path)
-                st.success(f"{fname} → PDF created")
-
-            except Exception as e:
-                st.error(f"Failed to convert {fname}: {e}")
-
-        # Bundle results
-        if len(pdf_paths) == 1:
-            _download("Download PDF", _to_bytes(pdf_paths[0]), os.path.basename(pdf_paths[0]), "application/pdf")
-        else:
-            mem = io.BytesIO()
-            with zipfile.ZipFile(mem, "w") as zf:
-                for p in pdf_paths:
-                    zf.write(p, os.path.basename(p))
-            mem.seek(0)
-            _download("Download PDFs.zip", mem.getvalue(), "converted_pdfs.zip", "application/zip")
-
-        shutil.rmtree(tmpdir, ignore_errors=True)
-
-st.divider()
-adsense(
-    client_id="ca-pub-6839950833502659",
-    slot_id=3025573109,
-    height=120,
-    style="display:block",
-    ad_format="auto",
-    full_width=True
-)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# ==========================
+# Main
+# ==========================
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(host="0.0.0.0", port=port, debug=False)
