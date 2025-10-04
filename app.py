@@ -571,28 +571,129 @@ def home():
 
 @app.get("/about")
 def about():
-    body = ("{name} was created to make working with PDFs simple and accessible from any device. "
-            "We focus on speed, privacy, and reliability so students, freelancers and businesses can manage documents without hassle."
-            ).format(name=SITE_NAME)
+    body = f("""
+{SITE_NAME} was built to make working with PDFs simple, fast, and accessible on any device.
+<br><br>
+<strong>What we do</strong><br>
+Merge, split, rotate, re-order, compress, protect/unlock, watermark, add page numbers, convert images ↔ PDF,
+export PDF to images or DOCX, and convert common office files to PDF. We aim to keep text crisp and images clear,
+avoiding needless recompression.
+<br><br>
+<strong>Our principles</strong><br>
+• Speed and quality — outputs should look professional without trial-and-error.<br>
+• Privacy by default — files are processed securely and removed after delivery.<br>
+• Reliability — predictable behavior across browsers and devices, no sign-ups required.
+<br><br>
+<strong>How it works</strong><br>
+Everything runs on our servers while you wait; there’s nothing to install. We preserve vector text/graphics where possible
+and only recompress when you explicitly choose compression settings.
+<br><br>
+<strong>Who it’s for</strong><br>
+Students preparing assignments, freelancers sending proposals, teams producing client-ready PDFs—anyone who needs dependable tools that “just work”.
+<br><br>
+<strong>What’s next</strong><br>
+We continuously improve performance and add sensible options without bloat. If something isn’t working the way you expect,
+email us at {CONTACT_EMAIL} — we read every message.
+""")
     return PAGES_SIMPLE("About", body)
+
 
 @app.get("/privacy")
 def privacy():
-    body = ("We do not sell or share your personal data. Files you upload are processed securely and deleted after delivery. "
-            f"For questions, email {CONTACT_EMAIL}.")
+    body = f("""
+We respect your privacy. This page explains what we process, why, and your choices.
+<br><br>
+<strong>1) Files you upload</strong><br>
+• Purpose: provide the requested PDF tool (e.g., merge, split, convert).<br>
+• Storage: files are kept only as long as needed to produce a download and are then deleted from temporary storage.<br>
+• Access: files are not shared or sold and are only handled by automated processes required to run the tool.
+<br><br>
+<strong>2) Basic logs & security</strong><br>
+We may log anonymized events (timestamps, status codes, basic error messages) to keep the service reliable and prevent abuse.
+These logs do not include your document contents.
+<br><br>
+<strong>3) Cookies & analytics</strong><br>
+We may use Google Analytics 4 to understand overall usage (pages, device types) so we can improve {SITE_NAME}. GA4 may set cookies or use similar technologies.
+You can use your browser settings to block analytics cookies if you prefer.
+<br><br>
+<strong>4) Advertising (Google AdSense)</strong><br>
+We display ads via Google AdSense. Google and its partners may use cookies to serve and measure ads (including personalized ads where permitted).
+You can manage ad personalization at <em>adssettings.google.com</em> and learn more in Google’s policies.
+<br><br>
+<strong>5) What we do NOT do</strong><br>
+• We don’t sell, rent, or trade your personal information.<br>
+• We don’t scan your documents to build user profiles.
+<br><br>
+<strong>6) Data retention</strong><br>
+Temporary files are removed after the download window. Diagnostic logs are retained only as long as necessary for security and operations.
+<br><br>
+<strong>7) Your choices</strong><br>
+Use your browser’s privacy controls to block cookies; you may still use the core tools. For any privacy questions or deletion requests,
+contact us at {CONTACT_EMAIL}.
+<br><br>
+<strong>8) Children</strong><br>
+{SITE_NAME} is a general-audience service and not directed to children under 13.
+<br><br>
+<strong>9) Changes</strong><br>
+We may update this policy to reflect improvements or legal requirements. Continued use of the site means you accept the updated policy.
+""")
     return PAGES_SIMPLE("Privacy", body)
+
 
 @app.get("/terms")
 def terms():
-    body = ("Use this service lawfully. Tools are provided \"as is\" with no guarantees. "
-            "We may update features at any time; continued use means you accept any changes.")
+    body = f("""
+By using {SITE_NAME}, you agree to these terms.
+<br><br>
+<strong>Acceptable use</strong><br>
+You will not upload illegal content, malware, or materials that infringe intellectual-property or privacy rights, and you will not attempt to disrupt or reverse-engineer the service.
+You must have the necessary rights to process any files you upload.
+<br><br>
+<strong>Service availability</strong><br>
+We aim for high uptime but do not guarantee uninterrupted service. Features may change or be discontinued at any time.
+<br><br>
+<strong>Intellectual property</strong><br>
+All rights to the {SITE_NAME} website, design, and software are reserved by us or our licensors. Your documents remain yours.
+<br><br>
+<strong>Disclaimer & limitation of liability</strong><br>
+The service is provided “as is” without warranties of any kind. To the maximum extent permitted by law, we are not liable for any indirect, incidental,
+special, consequential, or punitive damages, or for loss of data, profits, or business, arising from your use of the service.
+<br><br>
+<strong>Indemnity</strong><br>
+You agree to indemnify and hold us harmless from claims arising from your use of the service or your violation of these terms.
+<br><br>
+<strong>Termination</strong><br>
+We may suspend or terminate access for any violation or to protect the service and its users.
+<br><br>
+<strong>Governing law</strong><br>
+These terms are governed by applicable local laws where the service is operated. If any term is unenforceable, the remainder stays in effect.
+<br><br>
+<strong>Updates</strong><br>
+We may update these terms; continued use after publication constitutes acceptance. If you do not agree, please stop using the service.
+""")
     return PAGES_SIMPLE("Terms", body)
+
 
 @app.get("/contact")
 def contact():
-    body = (f"We’d love to hear from you. Email: {CONTACT_EMAIL}. "
-            "We aim to reply within 2–3 business days.")
+    body = f("""
+We’d love to hear from you.
+<br><br>
+<strong>Email</strong><br>
+{CONTACT_EMAIL}
+<br><br>
+<strong>What to include</strong><br>
+• A brief description of the task you were trying to do (e.g., “merge two PDFs”).<br>
+• The browser/device you’re using and any error message you saw.<br>
+• If it’s safe to share, sample files (or a minimal example) that reproduces the issue.
+<br><br>
+<strong>Response time</strong><br>
+We aim to reply within 2–3 business days. For sensitive security reports, please include “SECURITY” in the subject line so we can prioritize.
+<br><br>
+Thank you for helping us make {SITE_NAME} better for everyone!
+""")
     return PAGES_SIMPLE("Contact", body)
+
 
 # ==========================
 # Static text endpoints
@@ -1294,3 +1395,4 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
