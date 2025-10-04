@@ -8,21 +8,20 @@
 # - Static endpoints: /robots.txt, /sitemap.xml, /ads.txt
 #
 # Quick start:
-#   python -m venv .venv && . .venv/bin/activate  (Windows: .venv\Scripts\activate)
+#   python -m venv .venv && . .venv/bin/activate   (Windows: .venv\Scripts\activate)
 #   pip install flask pypdf pymupdf pillow pdf2docx python-docx reportlab pandas openpyxl python-pptx pypandoc
 #   python app.py
 #
 # NOTE: Some optional conversions (Office→PDF) rely on extra system tools (e.g., pandoc, LaTeX).
 #       The app handles failures gracefully and still serves core PDF tools.
 
-import io, os, re, shutil, tempfile, zipfile, uuid
+import io, os, re, shutil, tempfile, zipfile
 from typing import List, Tuple
 
 from flask import (
     Flask, request, render_template_string, send_file,
-    redirect, url_for, make_response
+    make_response, url_for
 )
-
 from werkzeug.utils import secure_filename
 
 from pypdf import PdfReader, PdfWriter
@@ -118,7 +117,7 @@ PAGE = r"""
   <meta property="og:type" content="website" />
   <meta property="og:url" content="{{ base_url }}/" />
   <meta name="google-adsense-account" content="{{ adsense_client }}" />
-  {% if ga4_id %}
+  {% if ga4_id and ga4_id != "G-XXXXXXX" %}
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga4_id }}"></script>
   <script>
@@ -605,8 +604,9 @@ def robots():
 
 @app.get("/ads.txt")
 def ads_txt():
-    # Google AdSense ads.txt line
-    txt = f"google.com, {ADSENSE_CLIENT.replace('ca-pub-','')}, DIRECT, f08c47fec0942fa0\n"
+    # Google AdSense ads.txt line (expects "pub-XXXXXXXXXXXXXXX")
+    publisher_id = ADSENSE_CLIENT.replace("ca-pub-","pub-")
+    txt = f"google.com, {publisher_id}, DIRECT, f08c47fec0942fa0\n"
     return make_response((txt, 200, {"Content-Type":"text/plain"}))
 
 @app.get("/sitemap.xml")
@@ -824,7 +824,12 @@ def rotate_pdf():
     try:
         r = PdfReader(p); w=PdfWriter()
         for pg in r.pages:
-            pg.rotate(deg); w.add_page(pg)
+            try:
+                pg.rotate(deg)  # pypdf 3.x
+            except Exception:
+                from pypdf import Transformation
+                pg.add_transformation(Transformation().rotate(deg))  # fallback
+            w.add_page(pg)
         out = io.BytesIO(); w.write(out)
         return _send_bytes(out.getvalue(), "rotated.pdf", "application/pdf")
     finally:
@@ -956,19 +961,34 @@ def protect_pdf():
     try:
         r = PdfReader(p); w = PdfWriter()
         for pg in r.pages: w.add_page(pg)
-        perms = {"print": allow_print, "copy": allow_copy, "annotate": allow_annot}
-        # pypdf API varies by version; try modern signature:
+
+        # Permissions (use new API if available)
+        perm_obj = None
+        try:
+            from pypdf import Permissions
+            perms = set()
+            if allow_print: perms.add(Permissions.PRINT)
+            if allow_copy: perms.add(Permissions.COPY)
+            if allow_annot: perms.add(Permissions.ANNOTATE)
+            perm_obj = perms
+        except Exception:
+            perm_obj = None
+
         try:
             from pypdf import EncryptionAlgorithm
             algo = (EncryptionAlgorithm.AES_256 if "256" in encryption
                     else EncryptionAlgorithm.AES_128 if "AES-128"==encryption
                     else EncryptionAlgorithm.RC4_128 if "RC4-128"==encryption
                     else EncryptionAlgorithm.RC4_40)
-            w.encrypt(user_password=user_pwd or None, owner_password=owner_pwd or None,
-                      permissions=perms, algorithm=algo)
+            w.encrypt(user_password=user_pwd or None,
+                      owner_password=owner_pwd or None,
+                      permissions=perm_obj,
+                      algorithm=algo)
         except Exception:
             # fallback older api
-            w.encrypt(user_password=user_pwd or None, owner_password=owner_pwd or None, use_128bit=("128" in encryption))
+            w.encrypt(user_password=user_pwd or None,
+                      owner_password=owner_pwd or None,
+                      use_128bit=("128" in encryption))
         out = io.BytesIO(); w.write(out)
         return _send_bytes(out.getvalue(), "protected.pdf", "application/pdf")
     finally:
@@ -993,7 +1013,7 @@ def unlock_pdf():
                     if ok == 0:
                         continue
                 except Exception:
-                    # newer pypdf auto-opens with .decrypt not available; if not encrypted, pass
+                    # newer pypdf auto-decrypts on access; if still encrypted and wrong, add_page will raise
                     pass
                 w = PdfWriter()
                 for pg in r.pages: w.add_page(pg)
@@ -1143,7 +1163,7 @@ def office_to_pdf():
                 else:
                     raise RuntimeError(f"Unsupported: {ext}")
                 pdf_paths.append(out_path)
-            except Exception as e:
+            except Exception:
                 # Skip file on error; continue with others
                 pass
             finally:
