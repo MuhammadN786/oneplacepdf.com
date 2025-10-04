@@ -40,12 +40,24 @@ ADSENSE_SLOT   = "3025573109"               # <-- an ad slot ID (create in AdSen
 GA4_ID         = "G-XXXXXXX"                # <-- optional; leave as "" to disable
 # ---------------------------------------------
 
+# --- Make sure redirect is imported ---
+from flask import (
+    Flask, request, render_template_string, send_file,
+    redirect, url_for, make_response
+)
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB uploads
 
 # --- Canonical host + HTTPS redirect (SEO/AdSense friendly) ---
 # Derive the primary host from BASE_URL defined above.
 PRIMARY_HOST = BASE_URL.replace("https://", "").replace("http://", "").strip("/")
+
+# (Optional) Quietly drop stale Streamlit asset/health requests to avoid noisy logs.
+@app.before_request
+def _block_old_streamlit():
+    if request.path.startswith("/_stcore/"):
+        return make_response(("Not found", 404))
 
 @app.before_request
 def _canonicalize_host_and_https():
@@ -56,7 +68,7 @@ def _canonicalize_host_and_https():
 
     # Skip redirect for Render's internal/onrender health checks
     if host.endswith(".onrender.com"):
-        return None
+        return
 
     # 1) Force apex host (e.g., redirect www → apex)
     if host and host != PRIMARY_HOST:
@@ -65,7 +77,6 @@ def _canonicalize_host_and_https():
     # 2) Enforce HTTPS
     if scheme != "https":
         return redirect(f"https://{PRIMARY_HOST}{path}", code=301)
-    return None
 
 # (Optional but recommended) Add HSTS for stronger HTTPS
 @app.after_request
@@ -74,6 +85,7 @@ def _add_hsts(resp):
         "Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"
     )
     return resp
+
 
 
 # ==========================
@@ -1429,6 +1441,7 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
