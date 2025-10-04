@@ -24,6 +24,18 @@ st.set_page_config(
     page_icon="📄",
     layout="wide",
 )
+# -----------------------------
+# Google AdSense: site-ownership verification + loader
+# (Equivalent to putting the script in <head> on every page)
+# -----------------------------
+import streamlit.components.v1 as components
+
+if not st.session_state.get("_adsense_verify_loaded"):
+    components.html("""
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6839950833502659"
+            crossorigin="anonymous"></script>
+    """, height=0)
+    st.session_state["_adsense_verify_loaded"] = True
 
 # -----------------------------
 # Integrations & helpers
@@ -1404,6 +1416,7 @@ adsense(
     ad_format="auto",
     full_width=True
 )
+
 
 
 
