@@ -156,7 +156,7 @@ PAGE = r"""
     "@type":"WebSite",
     "name":"{{ site_name }}",
     "url":"{{ base_url }}/",
-    "description":"Free online PDF tools to merge, split, compress, convert and protect PDFs.",
+    "description":"Free online PDF tools to merge, split, compress, convert and protect PDFs. Fast, private, works on any device. No sign-up required.",
     "inLanguage":"en",
     "publisher":{"@type":"Organization","name":"{{ site_name }}"}
   }
@@ -1417,6 +1417,7 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
