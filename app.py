@@ -601,6 +601,12 @@ Merge, split, rotate, re-order, compress, protect/unlock, watermark, add page nu
 export PDF to images or DOCX, and convert common office files to PDF. We aim to keep text crisp and images clear,
 avoiding needless recompression.
 <br><br>
+<strong>Edit &amp; Sign PDF</strong><br>
+Annotate right in the browser: highlights &amp; strikeouts, rectangles/circles/arrows, freehand notes,
+movable text boxes (font/size), tick ✓ / cross ✗ boxes, and signatures. Per-page zoom, thumbnails,
+undo/redo, and server rollback help you place edits precisely and recover from mistakes.<br>
+Open the editor here: <a href="https://oneplacepdf-com-editor.onrender.com" rel="noopener">Edit &amp; Sign PDF</a>
+<br><br>
 <strong>Our principles</strong><br>
 • Speed and quality — outputs should look professional without trial-and-error.<br>
 • Privacy by default — files are processed securely and removed after delivery.<br>
@@ -615,7 +621,7 @@ Students preparing assignments, freelancers sending proposals, teams producing c
 <br><br>
 <strong>What’s next</strong><br>
 We continuously improve performance and add sensible options without bloat. If something isn’t working the way you expect,
-email us at {CONTACT_EMAIL} — we read every message.
+email us at <a href="mailto:oneplacepdf@gmail.com">oneplacepdf@gmail.com</a> — we read every message.
 """
     return PAGES_SIMPLE("About", body)
 
@@ -1418,6 +1424,7 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
