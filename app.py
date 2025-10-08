@@ -131,10 +131,10 @@ PAGE = r"""
   <meta charset="utf-8">
   <title>{{ site_name }} — Free All-in-One PDF Tools</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Free online PDF tools to merge, split, compress, convert and protect PDFs. Fast, private, works on any device. No sign-up required." />
+  <meta name="description" content="Free online PDF editor to edit & sign. Merge, split, compress, protect. Convert JPG/PNG, Word, Excel, PowerPoint to PDF and PDF to Word/Images. No sign-up." />
   <link rel="canonical" href="{{ base_url }}/" />
   <meta property="og:title" content="{{ site_name }} — All-in-One PDF Tools" />
-  <meta property="og:description" content="Merge, split, compress, convert, protect, and more — fast and simple in your browse." />
+  <meta property="og:description" content="Free online PDF editor to edit & sign. Merge, split, compress, convert (JPG/PNG, Word, Excel, PowerPoint), protect. Fast, private, works on any device. No sign-up." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="{{ base_url }}/" />
   <meta name="google-adsense-account" content="{{ adsense_client }}" />
@@ -156,7 +156,7 @@ PAGE = r"""
     "@type":"WebSite",
     "name":"{{ site_name }}",
     "url":"{{ base_url }}/",
-    "description":"Free online PDF tools to merge, split, compress, convert and protect PDFs. Fast, private, works on any device. No sign-up required.",
+    "description":"Free online PDF editor to edit & sign. Merge, split, compress, protect. Convert JPG/PNG, Word, Excel, PowerPoint to PDF and PDF to Word/Images. No sign-up.",
     "inLanguage":"en",
     "publisher":{"@type":"Organization","name":"{{ site_name }}"}
   }
@@ -1424,6 +1424,7 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
