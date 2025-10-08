@@ -33,6 +33,10 @@ from pdf2docx import Converter as Pdf2DocxConverter
 SITE_NAME = "OnePlacePDF"
 BASE_URL  = "https://oneplacepdf.com"      # change if different domain
 CONTACT_EMAIL = "oneplacepdf@gmail.com"
+# Where the editor is hosted (change later if you move to a subdomain)
+EDITOR_URL = "https://oneplacepdf-com-editor.onrender.com"
+# Example if you create a custom subdomain:
+# EDITOR_URL = "https://editor.oneplacepdf.com"
 
 # Google tags (replace with your real IDs)
 ADSENSE_CLIENT = "ca-pub-6839950833502659"  # <-- YOUR AdSense publisher ID
@@ -208,7 +212,7 @@ PAGE = r"""
         <a href="{{ url_for('about') }}">About</a>
         <a href="{{ url_for('privacy') }}">Privacy</a>
         <a href="{{ url_for('terms') }}">Terms</a>
-        <a href="https://oneplacepdf-com-editor.onrender.com">Edit &amp; Sign PDF</a>
+        <a href="{{ url_for('editor') }}">Edit &amp; Sign PDF</a>
         <a href="{{ url_for('contact') }}">Contact</a>
       </nav>
     </div>
@@ -700,6 +704,27 @@ These terms are governed by applicable local laws where the service is operated.
 We may update these terms; continued use after publication constitutes acceptance. If you do not agree, please stop using the service.
 """
     return PAGES_SIMPLE("Terms", body)
+@app.get("/editor")
+def editor():
+    # Simple full-page iframe; no ads / no indexing here
+    return render_template_string("""
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Edit & Sign PDF — {{ site }}</title>
+  <style>
+    html,body { height:100%; margin:0; background:#0b1020; }
+    iframe { position:fixed; inset:0; width:100%; height:100%; border:0; }
+  </style>
+</head>
+<body>
+  <iframe src="{{ editor_url }}" allow="clipboard-write *;"></iframe>
+</body>
+</html>
+""", editor_url=EDITOR_URL, site=SITE_NAME)
 
 
 @app.get("/contact")
@@ -1424,6 +1449,7 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
