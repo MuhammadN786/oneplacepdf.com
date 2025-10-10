@@ -606,8 +606,8 @@ avoiding needless recompression.
 <strong>Edit &amp; Sign PDF</strong><br>
 Annotate right in the browser: highlights &amp; strikeouts, rectangles/circles/arrows, freehand notes,
 movable text boxes (font/size), tick ✓ / cross ✗ boxes, and signatures. Per-page zoom, thumbnails,
-undo/redo, and server rollback help you place edits precisely and recover from mistakes.<br>
-Open the editor here: <a href="https://oneplacepdf-com-editor.onrender.com" rel="noopener">Edit &amp; Sign PDF</a>
+on-canvas delete/duplicate, undo/redo, and server rollback help you place edits precisely and recover from mistakes.<br>
+Open the editor here: <a href="/editor" rel="noopener">Edit &amp; Sign PDF</a>
 <br><br>
 <strong>Our principles</strong><br>
 • Speed and quality — outputs should look professional without trial-and-error.<br>
@@ -1448,6 +1448,7 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
