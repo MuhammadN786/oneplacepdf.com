@@ -1,4 +1,8 @@
-# app.py — serve BOTH apps; rewrite any external "Create QR Code" link to /qr/create
+# app.py — wrapper
+# - Mounts main app at "/"
+# - Mounts QR app at "/qr"
+# - Rewrites hard-coded external QR link to /qr/create
+# - Allows indexing on /editor by replacing/adding robots meta tag
 
 import os, re, importlib.util
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
@@ -22,57 +26,69 @@ def _first_existing(paths):
             return p
     return None
 
-# --- HTML filter: rewrite any external QR link to internal /qr/create ---
+# --- Middleware: Rewrite external QR link to /qr/create ----------------------
 class _RewriteQrLink:
-    """
-    Rewrites anchors like:
-      href="https://oneplacepdf-com-qr-generator.onrender.com/create"
-      href="http://oneplacepdf-com-qr-generator.onrender.com/create"
-    to:
-      href="/qr/create"
-    """
     _HREF_RE = re.compile(
         rb'href\s*=\s*"(https?://oneplacepdf-com-qr-generator\.onrender\.com/create)"',
         re.IGNORECASE
     )
     _REPLACEMENT = b'href="/qr/create"'
-
-    def __init__(self, wsgi_app):
-        self.wsgi_app = wsgi_app
-
+    def __init__(self, wsgi_app): self.wsgi_app = wsgi_app
     def __call__(self, environ, start_response):
-            captured = {}
-            def _cap_start(status, headers, exc_info=None):
-                captured["status"] = status
-                captured["headers"] = headers
-                captured["exc_info"] = exc_info
-                return lambda _: None
+        captured = {}
+        def cap(status, headers, exc=None):
+            captured["status"], captured["headers"], captured["exc"] = status, headers, exc
+            return lambda _:_  # swallow write
+        it = self.wsgi_app(environ, cap)
+        headers = captured.get("headers", [])
+        ctype = next((v for k,v in headers if k.lower()=="content-type"), "")
+        if "text/html" not in str(ctype).lower():
+            start_response(captured["status"], headers, captured["exc"])
+            for chunk in it: yield chunk
+            return
+        body = b"".join(it)
+        body = self._HREF_RE.sub(self._REPLACEMENT, body)
+        new_headers = [(k, (str(len(body)) if k.lower()=="content-length" else v)) for k,v in headers]
+        start_response(captured["status"], new_headers, captured["exc"])
+        yield body
 
-            app_iter = self.wsgi_app(environ, _cap_start)
-            headers = captured.get("headers", [])
-            ctype = next((v for k, v in headers if k.lower() == "content-type"), "")
-            if not (isinstance(ctype, str) and "text/html" in ctype.lower()):
-                start_response(captured["status"], headers, captured["exc_info"])
-                for chunk in app_iter:
-                    yield chunk
-                return
+# --- Middleware: Force index,follow on /editor only --------------------------
+class _AllowEditorIndexing:
+    # replace existing noindex meta if present
+    _NOINDEX_RE = re.compile(
+        rb'<meta\s+name=["\']robots["\']\s+content=["\']\s*noindex\s*,\s*nofollow\s*["\']\s*/?>',
+        re.IGNORECASE
+    )
+    # if no robots tag exists, inject one before </head>
+    _HEAD_CLOSE_RE = re.compile(rb'</head\s*>', re.IGNORECASE)
+    _ROBOTS_ALLOW = b'<meta name="robots" content="index,follow" />'
+    def __init__(self, wsgi_app): self.wsgi_app = wsgi_app
+    def __call__(self, environ, start_response):
+        if environ.get("PATH_INFO") != "/editor":
+            return self.wsgi_app(environ, start_response)
+        captured = {}
+        def cap(status, headers, exc=None):
+            captured["status"], captured["headers"], captured["exc"] = status, headers, exc
+            return lambda _:_ 
+        it = self.wsgi_app(environ, cap)
+        headers = captured.get("headers", [])
+        ctype = next((v for k,v in headers if k.lower()=="content-type"), "")
+        if "text/html" not in str(ctype).lower():
+            start_response(captured["status"], headers, captured["exc"])
+            for chunk in it: yield chunk
+            return
+        body = b"".join(it)
+        # replace noindex -> index
+        new_body = self._NOINDEX_RE.sub(self._ROBOTS_ALLOW, body)
+        if new_body == body:
+            # no robots tag found—inject index,follow before </head>
+            new_body = self._HEAD_CLOSE_RE.sub(self._ROBOTS_ALLOW + b'\n</head>', body, count=1)
+        body = new_body
+        new_headers = [(k, (str(len(body)) if k.lower()=="content-length" else v)) for k,v in headers]
+        start_response(captured["status"], new_headers, captured["exc"])
+        yield body
 
-            body = b"".join(app_iter)
-            body = self._HREF_RE.sub(self._REPLACEMENT, body)
-
-            new_headers, blen = [], str(len(body))
-            for k, v in headers:
-                if k.lower() == "content-length":
-                    new_headers.append((k, blen))
-                else:
-                    new_headers.append((k, v))
-
-            start_response(captured["status"], new_headers, captured["exc_info"])
-            yield body
-
-# You can override these via Render env vars if needed:
-# MAIN_APP_PATH=/full/path/to/your/main app.py
-# QR_APP_PATH=/full/path/to/your/qr app.py
+# --- Paths (env overrides supported) -----------------------------------------
 MAIN_APP_PATH = _first_existing([
     os.environ.get("MAIN_APP_PATH"),
     os.path.join(BASE_DIR, "main_app", "app.py"),
@@ -87,11 +103,12 @@ if not MAIN_APP_PATH:
 if not QR_APP_PATH:
     raise FileNotFoundError("QR app not found. Put it at ./qr_app/app.py or set env QR_APP_PATH.")
 
+# --- Compose -----------------------------------------------------------------
 main_app = _load_app("main_app_module", MAIN_APP_PATH)
 qr_app   = _load_app("qr_app_module",   QR_APP_PATH)
 
-# Wrap main app to rewrite external QR links
-main_app = _RewriteQrLink(main_app)
+# order matters: rewrite QR links, then allow /editor indexing
+main_app = _AllowEditorIndexing(_RewriteQrLink(main_app))
 
 # Mount: main at "/", QR at "/qr"
 app = DispatcherMiddleware(main_app, { "/qr": qr_app })
