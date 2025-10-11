@@ -768,15 +768,36 @@ def ads_txt():
 
 @app.get("/sitemap.xml")
 def sitemap():
-    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>{BASE_URL}/</loc></url>
-  <url><loc>{BASE_URL}/about</loc></url>
-  <url><loc>{BASE_URL}/privacy</loc></url>
-  <url><loc>{BASE_URL}/terms</loc></url>
-  <url><loc>{BASE_URL}/contact</loc></url>
-</urlset>"""
-    return make_response((xml, 200, {"Content-Type":"application/xml"}))
+    from datetime import datetime, timezone
+
+    urls = [
+        f"{BASE_URL}/",
+        f"{BASE_URL}/about",
+        f"{BASE_URL}/privacy",
+        f"{BASE_URL}/terms",
+        f"{BASE_URL}/contact",
+        f"{BASE_URL}/editor",
+        f"{BASE_URL}/qr/create",
+    ]
+
+    lastmod = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    parts = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for u in urls:
+        priority = "1.00" if u.endswith("/") else "0.80"
+        parts += [
+            "  <url>",
+            f"    <loc>{u}</loc>",
+            f"    <lastmod>{lastmod}</lastmod>",
+            "    <changefreq>weekly</changefreq>",
+            f"    <priority>{priority}</priority>",
+            "  </url>"
+        ]
+    parts.append("</urlset>")
+    xml = "\n".join(parts)
+    return make_response((xml, 200, {"Content-Type": "application/xml"}))
+
 
 # ==========================
 # Routes: Tools
@@ -1451,6 +1472,7 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
