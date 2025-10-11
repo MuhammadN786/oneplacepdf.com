@@ -64,6 +64,215 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
 
+# --- SEO: programmatic per-tool pages ---
+from datetime import datetime, timezone
+
+# Map each tool to a slug + SEO copy (expand later)
+TOOLS = {
+    "images-to-pdf": {
+        "name": "JPG/PNG to PDF",
+        "h1": "Convert Images to PDF (JPG, PNG → PDF)",
+        "desc": "Free online JPG/PNG to PDF converter. Keep image quality, set page size/orientation, margins and DPI.",
+        "keywords": ["jpg to pdf","png to pdf","images to pdf","convert images to pdf"],
+    },
+    "merge-pdf": {
+        "name": "Merge PDF",
+        "h1": "Merge PDF Files — Combine PDFs in Any Order",
+        "desc": "Fast, reliable PDF merger. Preserve quality, optional per-file page ranges and bookmarks.",
+        "keywords": ["merge pdf","combine pdf","append pdf"],
+    },
+    "split-pdf": {
+        "name": "Split PDF",
+        "h1": "Split PDF by Pages or Size",
+        "desc": "Split by custom ranges, every page, or approx file size. Downloads as individual PDFs or ZIP.",
+        "keywords": ["split pdf","extract pages pdf","separate pdf"],
+    },
+    "rotate-pdf": {
+        "name": "Rotate PDF",
+        "h1": "Rotate PDF Pages 90°/180°/270°",
+        "desc": "Rotate one or all pages and download a corrected PDF instantly.",
+        "keywords": ["rotate pdf","turn pdf pages"],
+    },
+    "reorder-pdf": {
+        "name": "Reorder Pages",
+        "h1": "Reorder / Remove PDF Pages",
+        "desc": "Keep specific pages and set a custom order using simple comma-separated lists.",
+        "keywords": ["reorder pdf","rearrange pdf","remove pages pdf"],
+    },
+    "extract-text": {
+        "name": "Extract Text",
+        "h1": "Extract Text from PDF",
+        "desc": "Plain/Raw/Layout-preserving text extraction with optional keyword highlighting.",
+        "keywords": ["extract text pdf","pdf to text","copy text from pdf"],
+    },
+    "compress-pdf": {
+        "name": "Compress PDF",
+        "h1": "Compress PDF — Reduce Size, Keep Quality",
+        "desc": "Quality-first compression with presets (light/standard/strong/extreme) and optional lossless.",
+        "keywords": ["compress pdf","reduce pdf size","shrink pdf"],
+    },
+    "protect-pdf": {
+        "name": "Protect PDF",
+        "h1": "Protect PDF with Password & Permissions",
+        "desc": "AES-256 encryption, user/owner passwords and fine-grained permissions.",
+        "keywords": ["password protect pdf","encrypt pdf"],
+    },
+    "unlock-pdf": {
+        "name": "Unlock PDF",
+        "h1": "Unlock PDF (Remove Password)",
+        "desc": "Batch-unlock PDFs when you know the password; get clean, unencrypted copies.",
+        "keywords": ["unlock pdf","remove password pdf"],
+    },
+    "pdf-to-images": {
+        "name": "PDF to Images",
+        "h1": "Convert PDF to PNG/JPEG/WebP",
+        "desc": "High-DPI export per page or a single stitched image.",
+        "keywords": ["pdf to jpg","pdf to png","pdf to images"],
+    },
+    "pdf-to-docx": {
+        "name": "PDF to DOCX",
+        "h1": "Convert PDF to Editable Word (DOCX)",
+        "desc": "Keeps images if you like; choose page ranges.",
+        "keywords": ["pdf to word","pdf to docx"],
+    },
+    "office-to-pdf": {
+        "name": "Office to PDF",
+        "h1": "Convert Word/Excel/PPT/Image/Text to PDF",
+        "desc": "One click conversion for DOCX, XLSX, PPTX, TXT, PNG, JPG (others best-effort).",
+        "keywords": ["word to pdf","excel to pdf","ppt to pdf","image to pdf"],
+    },
+    "watermark": {
+        "name": "Add Watermark",
+        "h1": "Add Text or Image Watermarks to PDF",
+        "desc": "Color, opacity, position, rotation; optional diagonal tiling.",
+        "keywords": ["watermark pdf","add watermark pdf"],
+    },
+    "page-numbers": {
+        "name": "Add Page Numbers",
+        "h1": "Add Page Numbers to PDF",
+        "desc": "Arabic/Roman/alphabetic styles, custom template and position.",
+        "keywords": ["add page numbers pdf","number pages pdf"],
+    },
+}
+
+def tool_abs_url(slug:str) -> str:
+    return f"{BASE_URL}/tool/{slug}"
+
+TOOL_PAGE_TEMPLATE = r"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="{{ meta_desc }}" />
+  <link rel="canonical" href="{{ canonical }}" />
+  <meta property="og:title" content="{{ og_title }}" />
+  <meta property="og:description" content="{{ meta_desc }}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="{{ canonical }}" />
+  <meta property="og:image" content="{{ og_image }}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{{ og_title }}" />
+  <meta name="twitter:description" content="{{ meta_desc }}" />
+  <meta name="google-adsense-account" content="{{ adsense_client }}" />
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "{{ site_name }} — {{ tool_name }}",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "url": "{{ canonical }}",
+    "description": "{{ meta_desc }}",
+    "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+    "publisher": {"@type": "Organization","name":"{{ site_name }}"}
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"BreadcrumbList",
+    "itemListElement":[
+      {"@type":"ListItem","position":1,"name":"Home","item":"{{ base_url }}/"},
+      {"@type":"ListItem","position":2,"name":"{{ tool_name }}","item":"{{ canonical }}"}
+    ]
+  }
+  </script>
+  <style>
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#0b1020;color:#eaf0ff}
+    .wrap{max-width:900px;margin:0 auto;padding:24px}
+    a{color:#9fc0ff}
+    header{padding:20px;border-bottom:1px solid #24304a;position:sticky;top:0;background:#0b1020cc;backdrop-filter:blur(6px)}
+    h1{margin:12px 0}
+    .grid{display:grid;grid-template-columns:1fr;gap:16px}
+    @media(min-width:900px){.grid{grid-template-columns:1.2fr .8fr}}
+    .card{background:#131a2a;border:1px solid #24304a;border-radius:14px;padding:16px}
+    .muted{color:#a9b2c7}
+    .btn{display:inline-block;background:linear-gradient(90deg,#5da0ff,#00d2d3);color:#081020;font-weight:700;border:0;padding:10px 14px;border-radius:10px;cursor:pointer;margin-top:12px}
+    .faq dt{font-weight:700;margin-top:10px}
+    .faq dd{margin:4px 0 10px 0;color:#cbd5e1}
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <a href="{{ base_url }}/">← All tools</a>
+  </header>
+  <main class="wrap">
+    <h1>{{ h1 }}</h1>
+    <p class="muted">{{ intro }}</p>
+
+    <div class="grid">
+      <div class="card">
+        {{ form_html|safe }}
+      </div>
+      <div class="card">
+        <h2>About this tool</h2>
+        <p>{{ about }}</p>
+        <h3>Why {{ site_name }}?</h3>
+        <ul>
+          <li>No sign-up</li><li>Quality-first processing</li><li>Privacy: temporary files only</li>
+        </ul>
+        <h3>FAQ</h3>
+        <dl class="faq">
+          {% for q,a in faq %}
+          <dt>{{ q }}</dt><dd>{{ a }}</dd>
+          {% endfor %}
+        </dl>
+      </div>
+    </div>
+
+    <section class="card" style="margin-top:16px">
+      <h2>Other PDF tools</h2>
+      <p class="muted">Quick links:</p>
+      <p>
+        {% for slug,label in other_tools %}
+          <a href="{{ base_url }}/tool/{{ slug }}">{{ label }}</a>{% if not loop.last %} • {% endif %}
+        {% endfor %}
+      </p>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+def _tool_meta(slug:str):
+    t = TOOLS[slug]
+    title = f"{t['name']} — {SITE_NAME}"
+    canonical = tool_abs_url(slug)
+    og_image = f"{BASE_URL}/static/og/{slug}.png"  # create later; fallback allowed
+    intro = t["desc"]
+    about = f"{t['h1']} with options tailored for accuracy and file size. Runs on our server; files are removed after delivery."
+    faq = [
+        ("Is it free?", "Yes, core features are free. No sign-up."),
+        ("Are my files private?", "We keep files only as long as needed to produce your download."),
+        ("Will the layout change?", "We preserve vector text/graphics where possible and avoid recompressing unless you choose compression."),
+    ]
+    return dict(
+        title=title, meta_desc=t["desc"], canonical=canonical, og_title=title,
+        og_image=og_image, h1=t["h1"], intro=intro, about=about, faq=faq,
+        tool_name=t["name"]
+    )
 
 
 # ==========================
@@ -239,7 +448,21 @@ PAGE = r"""
     </div>
 
     <div id="sections">
-    
+    <section class="wrap" style="padding:0 16px 24px">
+  <div class="card">
+    <h2>Popular tools</h2>
+    <p class="muted">
+      <a href="/tool/merge-pdf">Merge PDF</a> •
+      <a href="/tool/split-pdf">Split PDF</a> •
+      <a href="/tool/compress-pdf">Compress PDF</a> •
+      <a href="/tool/images-to-pdf">JPG to PDF</a> •
+      <a href="/tool/pdf-to-docx">PDF to Word</a> •
+      <a href="/tool/pdf-to-images">PDF to JPG/PNG</a> •
+      <a href="/tool/protect-pdf">Protect PDF</a> •
+      <a href="/tool/unlock-pdf">Unlock PDF</a>
+    </p>
+  </div>
+</section>
 
       <!-- Images → PDF -->
       <section class="grid section" id="images-pdf">
@@ -768,8 +991,6 @@ def ads_txt():
 
 @app.get("/sitemap.xml")
 def sitemap():
-    from datetime import datetime, timezone
-
     urls = [
         f"{BASE_URL}/",
         f"{BASE_URL}/about",
@@ -777,11 +998,9 @@ def sitemap():
         f"{BASE_URL}/terms",
         f"{BASE_URL}/contact",
         f"{BASE_URL}/editor",
-        f"{BASE_URL}/qr/create",
-    ]
+    ] + [tool_abs_url(slug) for slug in TOOLS.keys()]
 
-    lastmod = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     parts = ['<?xml version="1.0" encoding="UTF-8"?>',
              '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for u in urls:
@@ -789,14 +1008,14 @@ def sitemap():
         parts += [
             "  <url>",
             f"    <loc>{u}</loc>",
-            f"    <lastmod>{lastmod}</lastmod>",
+            f"    <lastmod>{now}</lastmod>",
             "    <changefreq>weekly</changefreq>",
             f"    <priority>{priority}</priority>",
             "  </url>"
         ]
     parts.append("</urlset>")
-    xml = "\n".join(parts)
-    return make_response((xml, 200, {"Content-Type": "application/xml"}))
+    return make_response(("\n".join(parts), 200, {"Content-Type": "application/xml"}))
+
 
 
 # ==========================
@@ -1466,12 +1685,148 @@ def page_numbers():
         try: os.remove(p)
         except: pass
 
+@app.get("/tool/<slug>")
+def tool_page(slug):
+    if slug not in TOOLS:
+        return redirect(url_for('home'), code=302)
+
+    meta = _tool_meta(slug)
+
+    # Pick the correct existing HTML form by slug (reuse your current forms)
+    forms = {
+        "images-to-pdf": f'''<form method="post" action="{url_for('images_to_pdf')}" enctype="multipart/form-data">
+            <label>Upload images (JPG/PNG)</label>
+            <input type="file" name="images" accept=".jpg,.jpeg,.png" multiple required>
+            <div class="row">
+              <div><label>Page size</label><select name="page_size"><option>Original</option><option>A4</option><option>Letter</option></select></div>
+              <div><label>Target DPI</label><select name="dpi"><option>300</option><option>600</option></select></div>
+            </div>
+            <div class="row">
+              <div><label>Margin (pt)</label><input type="number" name="margin" value="24" min="0" max="96"></div>
+              <div><label>Orientation</label><select name="orientation"><option>Auto</option><option>Portrait</option><option>Landscape</option></select></div>
+            </div>
+            <label>Output</label><select name="output"><option>Single PDF (all images)</option><option>One PDF per image (ZIP)</option></select>
+            <button class="btn" type="submit">Convert to PDF</button>
+        </form>''',
+        "merge-pdf": f'''<form method="post" action="{url_for('merge_append')}" enctype="multipart/form-data">
+            <label>Upload PDFs</label><input type="file" name="pdfs" accept=".pdf" multiple required>
+            <label>Pages to include (ranges applied to all files)</label><input type="text" name="ranges" placeholder="e.g., 1-3,5">
+            <label><input type="checkbox" name="bookmarks" checked> Add bookmarks by filename</label>
+            <button class="btn" type="submit">Merge Now</button>
+        </form>''',
+        "split-pdf": f'''<form method="post" action="{url_for('split_pdf')}" enctype="multipart/form-data">
+            <label>Upload PDF</label><input type="file" name="pdf" accept=".pdf" required>
+            <label>Split by</label><select name="mode"><option>Page ranges (custom)</option><option>Every page</option><option>Approx file size</option></select>
+            <label>Ranges (if custom)</label><input type="text" name="ranges" placeholder="1-3,5,7-9">
+            <label>Max size per part (MB)</label><input type="number" name="size_mb" value="5" min="1" max="50">
+            <button class="btn" type="submit">Split Now</button>
+        </form>''',
+        "rotate-pdf": f'''<form method="post" action="{url_for('rotate_pdf')}" enctype="multipart/form-data">
+            <label>Upload PDF</label><input type="file" name="pdf" accept=".pdf" required>
+            <label>Rotate all pages by</label><select name="deg"><option>90</option><option>180</option><option>270</option></select>
+            <button class="btn" type="submit">Apply Rotation</button>
+        </form>''',
+        "reorder-pdf": f'''<form method="post" action="{url_for('reorder_pdf')}" enctype="multipart/form-data">
+            <label>Upload PDF</label><input type="file" name="pdf" accept=".pdf" required>
+            <label>Pages to keep (blank = all)</label><input type="text" name="keep" placeholder="e.g., 1-3,6,8">
+            <label>Order (comma-separated, 1-based)</label><input type="text" name="order" placeholder="e.g., 3,1,2">
+            <button class="btn" type="submit">Build Re-ordered PDF</button>
+        </form>''',
+        "extract-text": f'''<form method="post" action="{url_for('extract_text')}" enctype="multipart/form-data">
+            <label>Upload PDF</label><input type="file" name="pdf" accept=".pdf" required>
+            <label>Mode</label><select name="mode"><option>Plain text</option><option>Preserve layout</option><option>Raw</option></select>
+            <label>Pages (blank = all)</label><input type="text" name="ranges" placeholder="1-3,5">
+            <label>Search term (optional)</label><input type="text" name="search" placeholder="keyword">
+            <button class="btn" type="submit">Extract Now</button>
+        </form>''',
+        "compress-pdf": f'''<form method="post" action="{url_for('compress_pdf')}" enctype="multipart/form-data">
+            <label>Upload PDF</label><input type="file" name="pdf" accept=".pdf" required>
+            <label>Preset</label><select name="preset"><option>Standard</option><option>Light (best quality)</option><option>Strong</option><option>Extreme</option><option>Lossless (no image recompress)</option></select>
+            <label>JPEG quality</label><input type="number" name="quality" value="85" min="50" max="95">
+            <label>Downsample images to DPI (blank=auto)</label><input type="number" name="target_dpi" value="200" min="50" max="600">
+            <label><input type="checkbox" name="strip_meta" checked> Strip metadata</label>
+            <label><input type="checkbox" name="linearize" checked> Linearize for web (Fast Web View)</label>
+            <label><input type="checkbox" name="clean_xref" checked> Aggressive clean</label>
+            <button class="btn" type="submit">Compress</button>
+        </form>''',
+        "protect-pdf": f'''<form method="post" action="{url_for('protect_pdf')}" enctype="multipart/form-data">
+            <label>Upload PDF</label><input type="file" name="pdf" accept=".pdf" required>
+            <label>User Password</label><input type="text" name="user_pwd" placeholder="password to open">
+            <label>Owner Password</label><input type="text" name="owner_pwd" placeholder="permissions password">
+            <label><input type="checkbox" name="allow_print" checked> Allow printing</label>
+            <label><input type="checkbox" name="allow_copy" checked> Allow copy</label>
+            <label><input type="checkbox" name="allow_annot" checked> Allow annotate</label>
+            <label>Encryption</label><select name="encryption"><option>AES-256</option><option>AES-128</option><option>RC4-128</option><option>RC4-40</option></select>
+            <button class="btn" type="submit">Apply Protection</button>
+        </form>''',
+        "unlock-pdf": f'''<form method="post" action="{url_for('unlock_pdf')}" enctype="multipart/form-data">
+            <label>Upload encrypted PDFs</label><input type="file" name="pdfs" accept=".pdf" multiple required>
+            <label>Password</label><input type="text" name="password" required>
+            <button class="btn" type="submit">Unlock Now</button>
+        </form>''',
+        "pdf-to-images": f'''<form method="post" action="{url_for('pdf_to_images')}" enctype="multipart/form-data">
+            <label>Upload PDFs</label><input type="file" name="pdfs" accept=".pdf" multiple required>
+            <label>Export DPI</label><input type="number" name="dpi" value="300" min="150" max="600" step="50">
+            <label>Format</label><select name="fmt"><option>PNG</option><option>JPEG</option><option>WebP</option></select>
+            <label>Quality (for JPEG/WebP)</label><input type="number" name="quality" value="95" min="80" max="100">
+            <label>Mode</label><select name="mode"><option>One image per page (ZIP)</option><option>All pages stitched vertically (one image)</option></select>
+            <button class="btn" type="submit">Convert</button>
+        </form>''',
+        "pdf-to-docx": f'''<form method="post" action="{url_for('pdf_to_docx')}" enctype="multipart/form-data">
+            <label>Upload PDF</label><input type="file" name="pdf" accept=".pdf" required>
+            <label>Start page (1-based)</label><input type="number" name="start" value="1" min="1">
+            <label>End page (0 = all)</label><input type="number" name="end" value="0" min="0">
+            <label><input type="checkbox" name="keep_images" checked> Keep images</label>
+            <button class="btn" type="submit">Convert to DOCX</button>
+        </form>''',
+        "office-to-pdf": f'''<form method="post" action="{url_for('office_to_pdf')}" enctype="multipart/form-data">
+            <label>Upload files</label><input type="file" name="files" multiple accept=".docx,.xlsx,.pptx,.txt,.odt,.ods,.odp,.png,.jpg" required>
+            <button class="btn" type="submit">Convert to PDF</button>
+        </form>''',
+        "watermark": f'''<form method="post" action="{url_for('watermark')}" enctype="multipart/form-data">
+            <label>Upload PDF</label><input type="file" name="pdf" accept=".pdf" required>
+            <label>Type</label><select name="wm_type"><option>Text</option><option>Image</option></select>
+            <label>Text (if text WM)</label><input type="text" name="text" value="CONFIDENTIAL">
+            <label>Color hex</label><input type="text" name="color" value="#FF0000">
+            <label>Opacity (%)</label><input type="number" name="opacity" value="20" min="10" max="90">
+            <label>Font size</label><input type="number" name="size" value="60" min="10" max="200">
+            <label>Rotation angle</label><input type="number" name="angle" value="45" min="0" max="360">
+            <label>Position</label><select name="pos"><option>Center</option><option>Top-left</option><option>Top-right</option><option>Bottom-left</option><option>Bottom-right</option><option>Diagonal Tiled</option></select>
+            <label>Watermark image (if image WM)</label><input type="file" name="wm_img" accept=".png,.jpg,.jpeg">
+            <label>Apply to pages (blank = all)</label><input type="text" name="pages" placeholder="1-3,5">
+            <button class="btn" type="submit">Apply Watermark</button>
+        </form>''',
+        "page-numbers": f'''<form method="post" action="{url_for('page_numbers')}" enctype="multipart/form-data">
+            <label>Upload PDF</label><input type="file" name="pdf" accept=".pdf" required>
+            <label>Pages (blank = all)</label><input type="text" name="ranges" placeholder="1-3,5">
+            <label>Style</label><select name="style"><option>1, 2, 3</option><option>01, 02, 03</option><option>i, ii, iii</option><option>I, II, III</option><option>a, b, c</option><option>A, B, C</option></select>
+            <label>Template</label><input type="text" name="template" value="Page {{n}} of {{total}}">
+            <label>Vertical</label><select name="pos_v"><option>Bottom</option><option>Top</option></select>
+            <label>Horizontal</label><select name="pos_h"><option>Center</option><option>Left</option><option>Right</option></select>
+            <label>Font size</label><input type="number" name="fontsize" value="12" min="8" max="32">
+            <label>Color hex</label><input type="text" name="color" value="#000000">
+            <label>Opacity (%)</label><input type="number" name="opacity" value="80" min="20" max="100">
+            <button class="btn" type="submit">Add Numbers</button>
+        </form>''',
+    }
+
+    form_html = forms.get(slug, "<p>Tool not found.</p>")
+
+    other_tools = [(s, TOOLS[s]["name"]) for s in TOOLS if s != slug]
+
+    return render_template_string(
+        TOOL_PAGE_TEMPLATE,
+        site_name=SITE_NAME, base_url=BASE_URL, adsense_client=ADSENSE_CLIENT,
+        **meta, form_html=form_html, other_tools=other_tools
+    )
+
 # ==========================
 # Main
 # ==========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
