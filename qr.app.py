@@ -482,7 +482,19 @@ def csp(resp):
     try: resp.headers.pop("X-Frame-Options", None)
     except Exception: pass
     return resp
+    # keep your existing /create view
+@app.route("/create", methods=["GET", "POST"])
+def create():
+    ...
+    return render_template_string(...)
+
+# ↓↓↓ ADD THIS DIRECTLY UNDER THE create() VIEW ↓↓↓
+@app.route("/qr/create", methods=["GET", "POST"])
+def create_qr_alias():
+    # just reuse the same handler
+    return create()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), debug=True)
+
 
