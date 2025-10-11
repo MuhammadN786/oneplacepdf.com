@@ -39,7 +39,7 @@ EDITOR_URL = "https://editor.oneplacepdf.com"
 # Google tags (replace with your real IDs)
 ADSENSE_CLIENT = "ca-pub-6839950833502659"  # <-- YOUR AdSense publisher ID
 ADSENSE_SLOT   = "3025573109"               # <-- an ad slot ID (create in AdSense)
-GA4_ID         = "G-XXXXXXX"                # <-- optional; leave as "" to disable
+GA4_ID         = "G-M0DR7NN62L"                # <-- optional; leave as "" to disable
 # ---------------------------------------------
 
 # --- Make sure redirect is imported ---
@@ -177,6 +177,15 @@ TOOL_PAGE_TEMPLATE = r"""<!doctype html>
   <meta name="google-adsense-account" content="{{ adsense_client }}" />
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>
   <script type="application/ld+json">
+  <!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-M0DR7NN62L"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-M0DR7NN62L');
+</script>
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -1826,6 +1835,7 @@ def tool_page(slug):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
