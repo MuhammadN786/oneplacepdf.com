@@ -359,15 +359,7 @@ PAGE = r"""
   <meta property="og:url" content="{{ base_url }}/" />
   <meta name="google-adsense-account" content="{{ adsense_client }}" />
   {% if ga4_id and ga4_id != "G-M0DR7NN62L" %}
-  <!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-M0DR7NN62L"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
 
-  gtag('config', 'G-M0DR7NN62L');
-</script>
   <!-- AdSense loader (sitewide) -->
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>
 
@@ -1836,6 +1828,7 @@ def tool_page(slug):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
