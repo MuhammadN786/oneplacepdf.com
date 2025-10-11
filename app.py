@@ -1,7 +1,4 @@
-# app.py — serve BOTH of your existing apps in one Render service:
-# - Main app at "/"
-# - QR app at "/qr"
-# No changes to either app's code. The wrapper also rewrites the broken QR tab into a link.
+# app.py — serve BOTH apps; strip the broken QR tab from the main homepage (no changes to either app)
 
 import os
 import re
@@ -28,72 +25,43 @@ def _first_existing(paths):
             return p
     return None
 
-# You can override these via Render environment variables if needed:
-# MAIN_APP_PATH=/full/path/to/your/main app.py
-# QR_APP_PATH=/full/path/to/your/qr app.py
-MAIN_APP_PATH = _first_existing([
-    os.environ.get("MAIN_APP_PATH"),
-    os.path.join(BASE_DIR, "main_app", "app.py"),
-])
-QR_APP_PATH = _first_existing([
-    os.environ.get("QR_APP_PATH"),
-    os.path.join(BASE_DIR, "qr_app", "app.py"),
-])
-
-if not MAIN_APP_PATH:
-    raise FileNotFoundError(
-        "Main app not found. Put it at ./main_app/app.py or set env MAIN_APP_PATH to its file path."
-    )
-if not QR_APP_PATH:
-    raise FileNotFoundError(
-        "QR app not found. Put it at ./qr_app/app.py or set env QR_APP_PATH to its file path."
-    )
-
-# --- HTML filter to fix the non-working bottom QR tab without editing the main app ---
-class HtmlFixQrTab:
+# --- HTML filter: remove the QR tab button on the main homepage only ---
+class _StripQrTab:
     """
-    On GET / (homepage) HTML, replace the QR tab button
-    <button class="tab-btn" data-target="qr">...</button>
-    with a real link to /qr/create so it works.
+    Removes the tab button:
+      <button class="tab-btn" data-target="qr">...</button>
+    from the main app's homepage HTML.
     """
-    # match the whole button (class contains tab-btn AND data-target="qr")
-    TAB_BTN_RE = re.compile(
+    _BTN_RE = re.compile(
         rb'<button[^>]*\bclass="[^"]*\btab-btn\b[^"]*"[^>]*\bdata-target="qr"[^>]*>.*?</button>',
-        re.DOTALL | re.IGNORECASE
+        re.IGNORECASE | re.DOTALL
     )
-    # replacement anchor
-    REPLACEMENT = b'<a class="tab-btn" href="/qr/create">Create QR Code</a>'
 
     def __init__(self, wsgi_app):
         self.wsgi_app = wsgi_app
 
     def __call__(self, environ, start_response):
-        is_home = (
-            environ.get("REQUEST_METHOD") == "GET" and
-            environ.get("PATH_INFO", "/") in ("/", "")
-        )
+        is_home = environ.get("REQUEST_METHOD") == "GET" and environ.get("PATH_INFO", "/") in ("/", "")
         captured = {}
 
         def _cap_start(status, headers, exc_info=None):
             captured["status"] = status
             captured["headers"] = headers
             captured["exc_info"] = exc_info
-            return lambda x: None
+            return lambda _: None
 
         app_iter = self.wsgi_app(environ, _cap_start)
 
         headers = captured.get("headers", [])
         ctype = next((v for k, v in headers if k.lower() == "content-type"), "")
-        is_html = isinstance(ctype, str) and "text/html" in ctype.lower()
-
-        if not (is_home and is_html):
+        if not (is_home and isinstance(ctype, str) and "text/html" in ctype.lower()):
             start_response(captured["status"], headers, captured["exc_info"])
             for chunk in app_iter:
                 yield chunk
             return
 
         body = b"".join(app_iter)
-        body = self.TAB_BTN_RE.sub(self.REPLACEMENT, body)  # <-- rewrite the bottom tab
+        body = self._BTN_RE.sub(b"", body)  # remove the QR tab button
 
         # fix Content-Length if present
         new_headers = []
@@ -107,15 +75,32 @@ class HtmlFixQrTab:
         start_response(captured["status"], new_headers, captured["exc_info"])
         yield body
 
+# You can override these via Render environment variables if needed:
+# MAIN_APP_PATH=/full/path/to/your/main app.py
+# QR_APP_PATH=/full/path/to/your/qr app.py
+MAIN_APP_PATH = _first_existing([
+    os.environ.get("MAIN_APP_PATH"),
+    os.path.join(BASE_DIR, "main_app", "app.py"),
+])
+QR_APP_PATH = _first_existing([
+    os.environ.get("QR_APP_PATH"),
+    os.path.join(BASE_DIR, "qr_app", "app.py"),
+])
+
+if not MAIN_APP_PATH:
+    raise FileNotFoundError("Main app not found. Put it at ./main_app/app.py or set env MAIN_APP_PATH.")
+if not QR_APP_PATH:
+    raise FileNotFoundError("QR app not found. Put it at ./qr_app/app.py or set env QR_APP_PATH.")
+
 # Load both apps exactly as they are
 main_app = _load_app("main_app_module", MAIN_APP_PATH)
 qr_app   = _load_app("qr_app_module",   QR_APP_PATH)
 
-# Wrap main app to fix the bottom QR tab
-fixed_main = HtmlFixQrTab(main_app)
+# Wrap main app to strip the QR tab from the homepage
+main_app = _StripQrTab(main_app)
 
 # Mount: main at "/", QR at "/qr"
-app = DispatcherMiddleware(fixed_main, {
+app = DispatcherMiddleware(main_app, {
     "/qr": qr_app,
 })
 
