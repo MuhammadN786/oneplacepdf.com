@@ -588,7 +588,6 @@ def home():
         {"id":"protect-unlock","label":"Protect / Unlock"},
         {"id":"conversions",  "label":"PDF↔DOC/IMG"},
         {"id":"wm-number",    "label":"Watermark / Numbers"},
-        {"id":"qr",           "label":"Create QR Code"},
     ]
     return render_template_string(
         PAGE,
@@ -1452,6 +1451,7 @@ def page_numbers():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
