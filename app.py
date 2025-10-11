@@ -1,27 +1,15 @@
 # app.py
 # OnePlacePDF — Single-file Flask app (no Streamlit)
-# Features:
-# - Normal HTML site with real <head> (AdSense, GA4, SEO, JSON-LD)
-# - Pages: Home (tools), About, Privacy, Terms, Contact
-# - Tools: Images→PDF, Merge, Combine, Split, Rotate, Reorder, Extract, Compress,
-#          Protect, Unlock, PDF→Images, PDF→DOCX, Watermark, Page Numbers, Office→PDF
-# - Static endpoints: /robots.txt, /sitemap.xml, /ads.txt
-#
-# Quick start:
-#   python -m venv .venv && . .venv/bin/activate   (Windows: .venv\Scripts\activate)
-#   pip install flask pypdf pymupdf pillow pdf2docx python-docx reportlab pandas openpyxl python-pptx pypandoc
-#   python app.py
-#
-# NOTE: Some optional conversions (Office→PDF) rely on extra system tools (e.g., pandoc, LaTeX).
-#       The app handles failures gracefully and still serves core PDF tools.
+# Pages: Home, About, Privacy, Terms, Contact, Editor
+# Tool endpoints: images→pdf, merge, combine, split, rotate, reorder, extract, compress,
+#                 protect, unlock, pdf→images, pdf→docx, watermark, page numbers, office→pdf
+# Static endpoints: /robots.txt, /sitemap.xml, /ads.txt
 
 import io, os, re, shutil, tempfile, zipfile
 from typing import List, Tuple
+from datetime import datetime, timezone
 
-from flask import (
-    Flask, request, render_template_string, send_file,
-    make_response, url_for
-)
+from flask import Flask, request, render_template_string, send_file, redirect, url_for, make_response
 from werkzeug.utils import secure_filename
 
 from pypdf import PdfReader, PdfWriter
@@ -29,45 +17,22 @@ import fitz  # PyMuPDF
 from PIL import Image
 from pdf2docx import Converter as Pdf2DocxConverter
 
-# ---------- Site config (edit these) ----------
+# ---------- Site config ----------
 SITE_NAME = "OnePlacePDF"
 BASE_URL  = "https://oneplacepdf.com"      # change if different domain
 CONTACT_EMAIL = "oneplacepdf@gmail.com"
-# Where the editor lives (use your new subdomain)
 EDITOR_URL = "https://editor.oneplacepdf.com"
 
-# Google tags (replace with your real IDs)
-ADSENSE_CLIENT = "ca-pub-6839950833502659"  # <-- YOUR AdSense publisher ID
-ADSENSE_SLOT   = "3025573109"               # <-- an ad slot ID (create in AdSense)
-GA4_ID         = "G-M0DR7NN62L"                # <-- optional; leave as "" to disable
-# ---------------------------------------------
-
-# --- Make sure redirect is imported ---
-from flask import (
-    Flask, request, render_template_string, send_file,
-    redirect, url_for, make_response
-)
-
-# imports at top of file must include redirect/make_response
-from flask import (
-    Flask, request, render_template_string, send_file,
-    redirect, url_for, make_response
-)
-from werkzeug.middleware.proxy_fix import ProxyFix
-
-from flask import (
-    Flask, request, render_template_string, send_file,
-    redirect, url_for, make_response
-)
-from werkzeug.middleware.proxy_fix import ProxyFix
+# Google tags
+ADSENSE_CLIENT = "ca-pub-6839950833502659"  # AdSense publisher ID
+ADSENSE_SLOT   = "3025573109"               # Example ad slot ID
+GA4_ID         = "G-M0DR7NN62L"             # GA4 measurement ID
+# ----------------------------------
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
 
-# --- SEO: programmatic per-tool pages ---
-from datetime import datetime, timezone
-
-# Map each tool to a slug + SEO copy (expand later)
+# Map each tool to a slug + SEO copy
 TOOLS = {
     "images-to-pdf": {
         "name": "JPG/PNG to PDF",
@@ -176,16 +141,19 @@ TOOL_PAGE_TEMPLATE = r"""<!doctype html>
   <meta name="twitter:description" content="{{ meta_desc }}" />
   <meta name="google-adsense-account" content="{{ adsense_client }}" />
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>
-  <script type="application/ld+json">
-  <!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-M0DR7NN62L"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
 
-  gtag('config', 'G-M0DR7NN62L');
-</script>
+  {% if ga4_id %}
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga4_id }}"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', '{{ ga4_id }}');
+  </script>
+  {% endif %}
+
+  <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -269,7 +237,7 @@ def _tool_meta(slug:str):
     t = TOOLS[slug]
     title = f"{t['name']} — {SITE_NAME}"
     canonical = tool_abs_url(slug)
-    og_image = f"{BASE_URL}/static/og/{slug}.png"  # create later; fallback allowed
+    og_image = f"{BASE_URL}/static/og/{slug}.png"  # optional
     intro = t["desc"]
     about = f"{t['h1']} with options tailored for accuracy and file size. Runs on our server; files are removed after delivery."
     faq = [
@@ -283,7 +251,6 @@ def _tool_meta(slug:str):
         tool_name=t["name"]
     )
 
-
 # ==========================
 # Utilities
 # ==========================
@@ -292,14 +259,12 @@ def _tmpfile(suffix=""):
     return fd, path
 
 def _save_upload(fs, suffix="") -> str:
-    """Save a single FileStorage to a tmp path and return path."""
     fd, path = _tmpfile(suffix=suffix)
     with os.fdopen(fd, "wb") as f:
         f.write(fs.read())
     return path
 
 def _parse_ranges(ranges: str, total_pages: int) -> List[int]:
-    """Return 0-based page indices from '1-3,5,7-9'. Keeps order, de-dupes."""
     if not ranges or not ranges.strip():
         return list(range(total_pages))
     result, seen = [], set()
@@ -327,7 +292,6 @@ def _human(n: int) -> str:
     return f"{n:.2f} PB"
 
 def _roman(n: int) -> str:
-    # Simple Roman numerals (1..3999)
     vals = [
         (1000,"M"), (900,"CM"), (500,"D"), (400,"CD"),
         (100,"C"), (90,"XC"), (50,"L"), (40,"XL"),
@@ -342,7 +306,7 @@ def _send_bytes(data: bytes, filename: str, mime: str):
     return send_file(io.BytesIO(data), as_attachment=True, download_name=filename, mimetype=mime)
 
 # ==========================
-# HTML Template
+# HTML Templates
 # ==========================
 PAGE = r"""
 <!doctype html>
@@ -358,10 +322,20 @@ PAGE = r"""
   <meta property="og:type" content="website" />
   <meta property="og:url" content="{{ base_url }}/" />
   <meta name="google-adsense-account" content="{{ adsense_client }}" />
-  {% if ga4_id and ga4_id != "G-M0DR7NN62L" %}
 
   <!-- AdSense loader (sitewide) -->
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>
+
+  {% if ga4_id %}
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga4_id }}"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', '{{ ga4_id }}');
+  </script>
+  {% endif %}
 
   <script type="application/ld+json">
   {
@@ -376,10 +350,7 @@ PAGE = r"""
   </script>
 
   <style>
-    :root {
-      --bg:#0b1020; --card:#131a2a; --muted:#a9b2c7; --fg:#eaf0ff; --accent:#5da0ff; --accent2:#00d2d3;
-      --border:#24304a;
-    }
+    :root { --bg:#0b1020; --card:#131a2a; --muted:#a9b2c7; --fg:#eaf0ff; --accent:#5da0ff; --accent2:#00d2d3; --border:#24304a; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial; color: var(--fg); background: linear-gradient(180deg, #0b1020 0%, #0a0f1e 70%, #070b17 100%); }
     header { padding: 28px 16px; border-bottom: 1px solid var(--border); position: sticky; top:0; background: rgba(11,16,32,.9); backdrop-filter: blur(6px); z-index:10; }
@@ -397,12 +368,9 @@ PAGE = r"""
     .card { background: var(--card); border:1px solid var(--border); border-radius: 14px; padding: 16px; }
     .card h3 { margin: 0 0 10px; font-size: 18px; }
     label { display:block; margin: 10px 0 6px; color: var(--muted); font-size: 13px; }
-    input[type="file"], select, input[type="text"], input[type="number"], textarea {
-      width: 100%; background: #0e1426; color: var(--fg); border:1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 14px;
-    }
+    input[type="file"], select, input[type="text"], input[type="number"], textarea { width: 100%; background: #0e1426; color: var(--fg); border:1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 14px; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .btn { display:inline-block; background: linear-gradient(90deg, var(--accent), var(--accent2));
-           color:#081020; font-weight:600; border:0; padding: 10px 14px; border-radius: 10px; cursor:pointer; margin-top:12px;}
+    .btn { display:inline-block; background: linear-gradient(90deg, var(--accent), var(--accent2)); color:#081020; font-weight:600; border:0; padding: 10px 14px; border-radius: 10px; cursor:pointer; margin-top:12px;}
     .muted { color: var(--muted); font-size: 12px; }
     footer { color: var(--muted); border-top: 1px solid var(--border); padding: 20px 16px; }
     .ad { display:block; width:100%; min-height:120px; margin: 10px 0; }
@@ -421,8 +389,7 @@ PAGE = r"""
         <a href="{{ url_for('about') }}">About</a>
         <a href="{{ url_for('privacy') }}">Privacy</a>
         <a href="{{ url_for('terms') }}">Terms</a>
-         <a href="https://oneplacepdf-com-qr-generator.onrender.com/create"
-   target="_blank" rel="noopener">Create QR Code</a>
+        <a href="https://oneplacepdf-com-qr-generator.onrender.com/create" target="_blank" rel="noopener">Create QR Code</a>
         <a href="{{ url_for('editor') }}">Edit &amp; Sign PDF</a>
         <a href="{{ url_for('contact') }}">Contact</a>
       </nav>
@@ -783,14 +750,27 @@ PAGE = r"""
 </html>
 """
 
-PAGES_SIMPLE = lambda title, body: f"""<!doctype html>
+def PAGES_SIMPLE(title: str, body: str) -> str:
+    """Simple static pages (optionally include GA4)."""
+    ga_block = ""
+    if GA4_ID:
+        ga_block = f"""
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id={GA4_ID}"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){{dataLayer.push(arguments);}}
+    gtag('js', new Date());
+    gtag('config', '{GA4_ID}');
+  </script>"""
+    return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>{title} — {SITE_NAME}</title>
-<link rel="canonical" href="{BASE_URL}/{title.lower() if title!='Home' else ''}" />
+<link rel="canonical" href="{BASE_URL}/{'' if title=='Home' else title.lower()}" />
 <meta name="description" content="{SITE_NAME} — Free online PDF tools." />
 <meta name="google-adsense-account" content="{ADSENSE_CLIENT}" />
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={ADSENSE_CLIENT}" crossorigin="anonymous"></script>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={ADSENSE_CLIENT}" crossorigin="anonymous"></script>{ga_block}
 <style>body{{font-family:system-ui;margin:0;background:#0b1020;color:#eaf0ff}}.wrap{{max-width:800px;margin:0 auto;padding:24px}}a{{color:#9fc0ff}}</style>
 </head><body>
 <div class="wrap">
@@ -851,7 +831,7 @@ Students preparing assignments, freelancers sending proposals, teams producing c
 <br><br>
 <strong>What’s next</strong><br>
 We continuously improve performance and add sensible options without bloat. If something isn’t working the way you expect,
-email us at <a href="mailto:oneplacepdf@gmail.com">oneplacepdf@gmail.com</a> — we read every message.
+email us at <a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a> — we read every message.
 """
     return PAGES_SIMPLE("About", body)
 
@@ -1828,6 +1808,7 @@ def tool_page(slug):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
