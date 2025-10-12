@@ -31,6 +31,18 @@ GA4_ID         = "G-M0DR7NN62L"             # GA4 measurement ID
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
+from flask import Response
+
+@app.after_request
+def add_headers(resp: Response):
+    # Light caching for HTML; adjust if you use a CDN/reverse proxy
+    if resp.mimetype in ("text/html", "application/xml"):
+        resp.headers["Cache-Control"] = "public, max-age=3600"
+    # Security hygiene
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    resp.headers["X-Frame-Options"] = "SAMEORIGIN"
+    return resp
 
 # Map each tool to a slug + SEO copy
 TOOLS = {
@@ -173,7 +185,22 @@ TOOL_PAGE_TEMPLATE = r"""<!doctype html>
     "itemListElement":[
       {"@type":"ListItem","position":1,"name":"Home","item":"{{ base_url }}/"},
       {"@type":"ListItem","position":2,"name":"{{ tool_name }}","item":"{{ canonical }}"}
+     <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"FAQPage",
+    "mainEntity":[
+      {% for q,a in faq %}
+      {
+        "@type":"Question",
+        "name":"{{ q }}",
+        "acceptedAnswer":{"@type":"Answer","text":"{{ a }}"}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
     ]
+  }
+  </script>
+ ]
   }
   </script>
   <style>
@@ -348,6 +375,17 @@ PAGE = r"""
     "publisher":{"@type":"Organization","name":"{{ site_name }}"}
   }
   </script>
+    <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"Organization",
+    "name":"OnePlacePDF",
+    "url":"https://oneplacepdf.com/",
+    "logo":"https://oneplacepdf.com/static/og/logo.png",
+    "sameAs":[]
+  }
+  </script>
+
 
   <style>
     :root { --bg:#0b1020; --card:#131a2a; --muted:#a9b2c7; --fg:#eaf0ff; --accent:#5da0ff; --accent2:#00d2d3; --border:#24304a; }
@@ -1808,6 +1846,7 @@ def tool_page(slug):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
