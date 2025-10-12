@@ -427,7 +427,7 @@ PAGE = r"""
         <a href="{{ url_for('about') }}">About</a>
         <a href="{{ url_for('privacy') }}">Privacy</a>
         <a href="{{ url_for('terms') }}">Terms</a>
-        <a href="https://oneplacepdf-com-qr-generator.onrender.com/create" target="_blank" rel="noopener">Create QR Code</a>
+        <a href="/qr">Create QR Code</a>
         <a href="{{ url_for('editor') }}">Edit &amp; Sign PDF</a>
         <a href="{{ url_for('contact') }}">Contact</a>
       </nav>
@@ -948,6 +948,44 @@ These terms are governed by applicable local laws where the service is operated.
 We may update these terms; continued use after publication constitutes acceptance. If you do not agree, please stop using the service.
 """
     return PAGES_SIMPLE("Terms", body)
+
+@app.get("/qr")
+def qr():
+    return """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Create QR Code — OnePlacePDF</title>
+  <meta name="description" content="Free QR code generator — create QR codes instantly." />
+  <style>
+    html,body { height:100%; margin:0; background:#0b1020; color:#eaf0ff; }
+    .wrap { height:100%; display:grid; grid-template-rows:auto 1fr; }
+    header { padding:16px; border-bottom:1px solid #24304a; }
+    iframe { width:100%; height:100%; border:0; }
+    a{color:#9fc0ff}
+    .fallback { padding:16px; font-size:14px; color:#a9b2c7; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header><a href="/">← Back</a> • <strong>Create QR Code</strong></header>
+    <iframe
+      src="https://oneplacepdf-com-qr-generator.onrender.com/create"
+      loading="eager"
+      sandbox="allow-forms allow-scripts allow-same-origin allow-downloads"
+      allow="clipboard-write *"
+      referrerpolicy="strict-origin-when-cross-origin">
+    </iframe>
+    <div class="fallback">
+      If the tool doesn’t load, <a href="https://oneplacepdf-com-qr-generator.onrender.com/create" rel="noopener" target="_blank">open it directly</a>.
+    </div>
+  </div>
+</body>
+</html>
+"""
+
 
 @app.get("/editor")
 def editor():
@@ -1846,6 +1884,7 @@ def tool_page(slug):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
