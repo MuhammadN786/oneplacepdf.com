@@ -33,17 +33,6 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
 from flask import Response
 
-@app.after_request
-def add_headers(resp: Response):
-    # Light caching for HTML; adjust if you use a CDN/reverse proxy
-    if resp.mimetype in ("text/html", "application/xml"):
-        resp.headers["Cache-Control"] = "public, max-age=3600"
-    # Security hygiene
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    resp.headers["X-Frame-Options"] = "SAMEORIGIN"
-    return resp
-
 # Map each tool to a slug + SEO copy
 TOOLS = {
     "images-to-pdf": {
@@ -1846,6 +1835,7 @@ def tool_page(slug):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
