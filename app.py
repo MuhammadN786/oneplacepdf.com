@@ -1081,8 +1081,20 @@ Thank you for helping us make {SITE_NAME} better for everyone!
 # --- SEO static endpoints ---
 from flask import Response
 
-@app.route("/robots.txt")
-def robots_txt():
+
+# ==========================
+# Static text endpoints
+# ==========================
+
+# --- SEO static endpoints ---
+from flask import Response
+
+# ==========================
+# Static text endpoints
+# ==========================
+
+@app.route("/robots.txt", endpoint="robots_txt_file")
+def robots_txt_file():
     body = (
         "User-agent: *\n"
         "Allow: /\n"
@@ -1091,79 +1103,31 @@ def robots_txt():
     return Response(body, mimetype="text/plain")
 
 
-@app.route("/ads.txt")
-def ads_txt():
-    # Keep this exactly in this format for AdSense
+@app.route("/ads.txt", endpoint="ads_txt_file")
+def ads_txt_file():
+    # Keep this exact format for AdSense verification
     body = f"google.com, {ADSENSE_CLIENT}, DIRECT, f08c47fec0942fa0\n"
     return Response(body, mimetype="text/plain")
 
 
-@app.route("/sitemap.xml")
-def sitemap_xml():
-    # List homepage + every tool URL
+@app.route("/sitemap.xml", endpoint="sitemap_xml_file")
+def sitemap_xml_file():
+    # Homepage + every tool URL (with trailing slash to match your route)
     pages = [(f"{BASE_URL}/", "daily")] + [
         (f"{BASE_URL}/tool/{slug}/", "weekly") for slug in TOOLS.keys()
     ]
     lastmod = datetime.utcnow().date().isoformat()
-
-    items = []
-    for loc, freq in pages:
-        items.append(
-            f"<url><loc>{loc}</loc><lastmod>{lastmod}</lastmod>"
-            f"<changefreq>{freq}</changefreq></url>"
-        )
-
+    items = "".join(
+        f"<url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>{freq}</changefreq></url>"
+        for loc, freq in pages
+    )
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-        + "".join(items) +
+        f"{items}"
         "</urlset>"
     )
     return Response(xml, mimetype="application/xml")
-
-
-# ==========================
-# Static text endpoints
-# ==========================
-@app.get("/robots.txt")
-def robots():
-    txt = f"User-agent: *\nAllow: /\nSitemap: {BASE_URL}/sitemap.xml\n"
-    return make_response((txt, 200, {"Content-Type":"text/plain"}))
-
-@app.get("/ads.txt")
-def ads_txt():
-    # Google AdSense ads.txt line (expects "pub-XXXXXXXXXXXXXXX")
-    publisher_id = ADSENSE_CLIENT.replace("ca-pub-","pub-")
-    txt = f"google.com, {publisher_id}, DIRECT, f08c47fec0942fa0\n"
-    return make_response((txt, 200, {"Content-Type":"text/plain"}))
-
-@app.get("/sitemap.xml")
-def sitemap():
-    urls = [
-        f"{BASE_URL}/",
-        f"{BASE_URL}/about",
-        f"{BASE_URL}/privacy",
-        f"{BASE_URL}/terms",
-        f"{BASE_URL}/contact",
-        f"{BASE_URL}/editor",
-    ] + [tool_abs_url(slug) for slug in TOOLS.keys()]
-
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    parts = ['<?xml version="1.0" encoding="UTF-8"?>',
-             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
-    for u in urls:
-        priority = "1.00" if u.endswith("/") else "0.80"
-        parts += [
-            "  <url>",
-            f"    <loc>{u}</loc>",
-            f"    <lastmod>{now}</lastmod>",
-            "    <changefreq>weekly</changefreq>",
-            f"    <priority>{priority}</priority>",
-            "  </url>"
-        ]
-    parts.append("</urlset>")
-    return make_response(("\n".join(parts), 200, {"Content-Type": "application/xml"}))
-
 
 
 # ==========================
@@ -1974,4 +1938,5 @@ def tool_page(slug):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
