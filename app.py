@@ -955,29 +955,22 @@ We may update these terms; continued use after publication constitutes acceptanc
 """
     return PAGES_SIMPLE("Terms", body)
 
-# ---------- QR Generator (native) ----------
-QR_HTML = """
+@app.get("/qr")
+def qr_page():
+    return """
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Create QR Code — {{ site_name }}</title>
+  <title>Create QR Code — OnePlacePDF</title>
   <meta name="description" content="Free QR code generator — create QR codes instantly." />
   <style>
-    :root { --bg:#0b1020; --card:#131a2a; --muted:#a9b2c7; --fg:#eaf0ff; --accent:#5da0ff; --accent2:#00d2d3; --border:#24304a; }
-    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#0b1020; color:#eaf0ff; }
-    .wrap { max-width: 900px; margin: 0 auto; padding: 24px; }
-    .card { background:#131a2a; border:1px solid #24304a; border-radius:14px; padding:16px; }
-    label { display:block; margin:10px 0 6px; color:var(--muted); font-size:13px; }
-    input[type="text"], select, input[type="number"] { width:100%; background:#0e1426; color:#eaf0ff; border:1px solid #24304a; border-radius:8px; padding:10px; }
-    .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    .btn { display:inline-block; background:linear-gradient(90deg, var(--accent), var(--accent2)); color:#081020; font-weight:600; border:0; padding:10px 14px; border-radius:10px; cursor:pointer; margin-top:12px; text-decoration:none; }
-    a { color:#9fc0ff; }
-    .muted{ color:var(--muted); font-size:12px; }
-    .qr-wrap { display:flex; align-items:center; gap:24px; flex-wrap:wrap; }
-    .qr { background:#0e1426; border:1px solid #24304a; border-radius:12px; padding:12px; }
-    .err { background:#3b1b1b; border:1px solid #5b2b2b; color:#ffd7d7; padding:10px; border-radius:8px; margin-bottom:12px; }
+    body{margin:0;background:#0b1020;color:#eaf0ff;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    .wrap{max-width:800px;margin:0 auto;padding:24px}
+    .card{background:#131a2a;border:1px solid #24304a;border-radius:14px;padding:16px}
+    a{color:#9fc0ff}
+    .btn{display:inline-block;background:linear-gradient(90deg,#5da0ff,#00d2d3);color:#081020;font-weight:600;border:0;padding:10px 14px;border-radius:10px;text-decoration:none;margin-top:10px}
   </style>
 </head>
 <body>
@@ -985,126 +978,14 @@ QR_HTML = """
     <p><a href="/">← Back</a></p>
     <div class="card">
       <h1>Create QR Code</h1>
-      {% if error_msg %}<div class="err">{{ error_msg }}</div>{% endif %}
-      <form method="post" action="{{ url_for('qr_generate') }}">
-        <label>Text / URL</label>
-        <input type="text" name="data" value="{{ data or '' }}" placeholder="https://example.com" required>
-
-        <div class="row">
-          <div>
-            <label>Error correction</label>
-            <select name="ec">
-              {% for opt in ['L','M','Q','H'] %}
-                <option {% if ec==opt %}selected{% endif %}>{{ opt }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div>
-            <label>Scale (pixels per module)</label>
-            <input type="number" name="scale" value="{{ scale }}" min="2" max="40">
-          </div>
-        </div>
-
-        <div class="row">
-          <div>
-            <label>Border (modules)</label>
-            <input type="number" name="border" value="{{ border }}" min="0" max="20">
-          </div>
-          <div>
-            <label>Format</label>
-            <select name="fmt">
-              <option {% if fmt=='png' %}selected{% endif %}>png</option>
-              <option {% if fmt=='svg' %}selected{% endif %}>svg</option>
-            </select>
-          </div>
-        </div>
-
-        <button class="btn" type="submit">Generate</button>
-      </form>
-      <p class="muted">All processing happens on this site. No redirects, no external frames.</p>
+      <p>To keep things secure and avoid cross-site warnings, the QR tool opens in a new tab.</p>
+      <a class="btn" href="https://oneplacepdf-com-qr-generator.onrender.com/create" target="_blank" rel="noopener">Open QR Generator</a>
     </div>
-
-    {% if img_data %}
-    <div class="card" style="margin-top:16px">
-      <h2>Your QR</h2>
-      <div class="qr-wrap">
-        <div class="qr">
-          {% if fmt == 'svg' %}
-            {{ img_data|safe }}
-          {% else %}
-            <img alt="QR code" src="data:image/png;base64,{{ img_data }}" />
-          {% endif %}
-        </div>
-        <div>
-          <a class="btn" href="{{ download_href }}" download="qr.{{ fmt }}">Download {{ fmt.upper() }}</a>
-        </div>
-      </div>
-    </div>
-    {% endif %}
   </div>
 </body>
 </html>
 """
 
-@app.get("/qr")
-def qr_page():
-    err = None if segno else "QR dependency missing. Add 'segno==1.6.1' to requirements.txt and redeploy."
-    return render_template_string(
-        QR_HTML,
-        site_name=SITE_NAME,
-        error_msg=err,
-        data="", ec="M", scale=8, border=4, fmt="png",
-        img_data=None, download_href=None
-    )
-
-@app.post("/qr")
-def qr_generate():
-    if not segno:
-        return render_template_string(
-            QR_HTML, site_name=SITE_NAME,
-            error_msg="QR dependency missing. Add 'segno==1.6.1' to requirements.txt and redeploy.",
-            data="", ec="M", scale=8, border=4, fmt="png", img_data=None, download_href=None
-        )
-
-    data = (request.form.get("data") or "").strip()
-    if not data:
-        return redirect(url_for("qr_page"))
-
-    ec = (request.form.get("ec") or "M").upper()
-    try:
-        scale = max(2, min(40, int(request.form.get("scale") or 8)))
-    except ValueError:
-        scale = 8
-    try:
-        border = max(0, min(20, int(request.form.get("border") or 4)))
-    except ValueError:
-        border = 4
-    fmt = (request.form.get("fmt") or "png").lower()
-
-    qr = segno.make(data, error=ec)
-
-    if fmt == "svg":
-        svg_io = io.StringIO()
-        qr.save(svg_io, kind="svg", border=border, xmldecl=False)
-        svg_str = svg_io.getvalue()
-        b64 = base64.b64encode(svg_str.encode("utf-8")).decode("ascii")
-        return render_template_string(
-            QR_HTML, site_name=SITE_NAME, error_msg=None,
-            data=data, ec=ec, scale=scale, border=border, fmt="svg",
-            img_data=svg_str,
-            download_href=f"data:image/svg+xml;base64,{b64}"
-        )
-    else:
-        png_io = io.BytesIO()
-        qr.save(png_io, kind="png", scale=scale, border=border)
-        b64 = base64.b64encode(png_io.getvalue()).decode("ascii")
-        return render_template_string(
-            QR_HTML, site_name=SITE_NAME, error_msg=None,
-            data=data, ec=ec, scale=scale, border=border, fmt="png",
-            img_data=b64,
-            download_href=f"data:image/png;base64,{b64}"
-        )
-# ---------- /QR ----------
 
 
 @app.get("/editor")
@@ -2004,6 +1885,7 @@ def tool_page(slug):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
