@@ -949,39 +949,6 @@ We may update these terms; continued use after publication constitutes acceptanc
 """
     return PAGES_SIMPLE("Terms", body)
 
-@app.get("/qr")
-def qr_page():
-    return """
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Create QR Code — OnePlacePDF</title>
-  <meta name="description" content="Free QR code generator — create QR codes instantly." />
-  <style>
-    body{margin:0;background:#0b1020;color:#eaf0ff;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
-    .wrap{max-width:800px;margin:0 auto;padding:24px}
-    .card{background:#131a2a;border:1px solid #24304a;border-radius:14px;padding:16px}
-    a{color:#9fc0ff}
-    .btn{display:inline-block;background:linear-gradient(90deg,#5da0ff,#00d2d3);color:#081020;font-weight:600;border:0;padding:10px 14px;border-radius:10px;text-decoration:none;margin-top:10px}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <p><a href="/">← Back</a></p>
-    <div class="card">
-      <h1>Create QR Code</h1>
-      <p>To keep things secure and avoid cross-site warnings, the QR tool opens in a new tab.</p>
-      <a class="btn" href="https://oneplacepdf-com-qr-generator.onrender.com/create" target="_blank" rel="noopener">Open QR Generator</a>
-    </div>
-  </div>
-</body>
-</html>
-"""
-
-
-
 @app.get("/editor")
 def editor():
     # Minimal page with no ads/analytics; just the editor embed
@@ -1879,6 +1846,7 @@ def tool_page(slug):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
