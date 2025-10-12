@@ -19,15 +19,9 @@ from pdf2docx import Converter as Pdf2DocxConverter
 
 # ---------- Site config ----------
 SITE_NAME = "OnePlacePDF"
-BASE_URL  = "https://www.oneplacepdf.com"   # <= make sure this is your live domain
+BASE_URL  = "https://oneplacepdf.com"      # change if different domain
 CONTACT_EMAIL = "oneplacepdf@gmail.com"
 EDITOR_URL = "https://editor.oneplacepdf.com"
-
-ADSENSE_CLIENT = "ca-pub-6839950833502659"
-ADSENSE_SLOT   = "3025573109"
-GA4_ID         = "G-M0DR7NN62L"
-# ----------------------------------
-
 
 # Google tags
 ADSENSE_CLIENT = "ca-pub-6839950833502659"  # AdSense publisher ID
@@ -129,101 +123,6 @@ TOOLS = {
 def tool_abs_url(slug:str) -> str:
     return f"{BASE_URL}/tool/{slug}"
 
-HOME_TEMPLATE = r"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>{{ site_name }} — Free Online PDF Tools</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Free online PDF tools: merge, compress, split, rotate, convert, watermark, page numbers, protect and unlock PDFs in your browser." />
-  <link rel="canonical" href="{{ base_url }}/" />
-  <meta name="google-adsense-account" content="{{ adsense_client }}" />
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>
-
-  {% if ga4_id %}
-  <!-- GA4 -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga4_id }}"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date()); gtag('config', '{{ ga4_id }}');
-  </script>
-  {% endif %}
-
-  <!-- Organization -->
-  <script type="application/ld+json">
-  {
-    "@context":"https://schema.org",
-    "@type":"Organization",
-    "@id":"{{ base_url }}/#org",
-    "name":"{{ site_name }}",
-    "url":"{{ base_url }}/",
-    "logo":"{{ base_url }}/static/img/logo.png",
-    "sameAs":[
-      "https://x.com/oneplacepdf",
-      "https://www.youtube.com/@oneplacepdf"
-    ]
-  }
-  </script>
-
-  <!-- WebApplication -->
-  <script type="application/ld+json">
-  {
-    "@context":"https://schema.org",
-    "@type":"WebApplication",
-    "@id":"{{ base_url }}/#webapp",
-    "name":"{{ site_name }}",
-    "url":"{{ base_url }}/",
-    "applicationCategory":"UtilitiesApplication",
-    "operatingSystem":"Any",
-    "inLanguage":"en",
-    "isAccessibleForFree": true,
-    "browserRequirements":"Requires JavaScript. Requires HTML5.",
-    "description":"Free online PDF tools: merge, compress, split, rotate, reorder, convert, watermark, page numbers, protect and unlock PDFs in your browser.",
-    "offers":{"@type":"Offer","price":"0.00","priceCurrency":"USD"},
-    "publisher":{"@id":"{{ base_url }}/#org"}
-  }
-  </script>
-
-  <style>
-    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#0b1020;color:#eaf0ff}
-    .wrap{max-width:1100px;margin:0 auto;padding:24px}
-    .grid{display:grid;grid-template-columns:1fr;gap:16px}
-    @media(min-width:900px){.grid{grid-template-columns:repeat(3,1fr)}}
-    .card{background:#131a2a;border:1px solid #24304a;border-radius:14px;padding:16px}
-    a{color:#9fc0ff;text-decoration:none}
-    a:hover{text-decoration:underline}
-    header{padding:20px;border-bottom:1px solid #24304a;position:sticky;top:0;background:#0b1020cc;backdrop-filter:blur(6px)}
-    .muted{color:#a9b2c7}
-    .title{margin:12px 0 4px}
-  </style>
-</head>
-<body>
-  <header class="wrap">
-    <h1 class="title">{{ site_name }} — Free Online PDF Tools</h1>
-    <p class="muted">Merge, compress, split, rotate, convert, and more — free in your browser.</p>
-  </header>
-
-  <main class="wrap">
-    <div class="grid">
-      {% for slug, t in tools.items() %}
-      <a class="card" href="{{ base_url }}/tool/{{ slug }}/">
-        <h3 class="title">{{ t.name }}</h3>
-        <p class="muted">{{ t.desc }}</p>
-      </a>
-      {% endfor %}
-    </div>
-
-    <section class="card" style="margin-top:16px">
-      <h2>FAQ</h2>
-      <p class="muted"><strong>Is {{ site_name }} free?</strong> Yes, core tools are free in-browser.</p>
-      <p class="muted"><strong>Are my files private?</strong> We process client-side where possible; server-side files are auto-deleted after processing.</p>
-    </section>
-  </main>
-</body>
-</html>
-"""
-
 TOOL_PAGE_TEMPLATE = r"""<!doctype html>
 <html lang="en">
 <head>
@@ -244,64 +143,39 @@ TOOL_PAGE_TEMPLATE = r"""<!doctype html>
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>
 
   {% if ga4_id %}
-  <!-- GA4 -->
+  <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga4_id }}"></script>
   <script>
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date()); gtag('config', '{{ ga4_id }}');
+    gtag('js', new Date());
+    gtag('config', '{{ ga4_id }}');
   </script>
   {% endif %}
 
-  <!-- Organization -->
-  <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"Organization","@id":"{{ base_url }}/#org","name":"{{ site_name }}","url":"{{ base_url }}/","logo":"{{ base_url }}/static/img/logo.png"}
-  </script>
-
-  <!-- SoftwareApplication (this tool) -->
   <script type="application/ld+json">
   {
-    "@context":"https://schema.org",
-    "@type":"SoftwareApplication",
-    "@id":"{{ canonical }}#app",
-    "name":"{{ tool_name }} — {{ site_name }}",
-    "applicationCategory":"UtilitiesApplication",
-    "operatingSystem":"Any",
-    "url":"{{ canonical }}",
-    "description":"{{ meta_desc }}",
-    "isAccessibleForFree": true,
-    "offers":{"@type":"Offer","price":"0.00","priceCurrency":"USD"},
-    "publisher":{"@id":"{{ base_url }}/#org"}
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "{{ site_name }} — {{ tool_name }}",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "url": "{{ canonical }}",
+    "description": "{{ meta_desc }}",
+    "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+    "publisher": {"@type": "Organization","name":"{{ site_name }}"}
   }
   </script>
-
-  <!-- Breadcrumbs -->
   <script type="application/ld+json">
   {
     "@context":"https://schema.org",
     "@type":"BreadcrumbList",
     "itemListElement":[
       {"@type":"ListItem","position":1,"name":"Home","item":"{{ base_url }}/"},
-      {"@type":"ListItem","position":2,"name":"Tools","item":"{{ base_url }}/"},
-      {"@type":"ListItem","position":3,"name":"{{ tool_name }}","item":"{{ canonical }}"}
+      {"@type":"ListItem","position":2,"name":"{{ tool_name }}","item":"{{ canonical }}"}
     ]
   }
   </script>
-
-  <!-- FAQPage (mirrors visible Q&A) -->
-  <script type="application/ld+json">
-  {
-    "@context":"https://schema.org",
-    "@type":"FAQPage",
-    "mainEntity":[
-      {% for q,a in faq %}
-      {"@type":"Question","name":"{{ q|replace('"','\\"') }}",
-       "acceptedAnswer":{"@type":"Answer","text":"{{ a|replace('"','\\"') }}"}}{% if not loop.last %},{% endif %}
-      {% endfor %}
-    ]
-  }
-  </script>
-
   <style>
     body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#0b1020;color:#eaf0ff}
     .wrap{max-width:900px;margin:0 auto;padding:24px}
@@ -315,7 +189,6 @@ TOOL_PAGE_TEMPLATE = r"""<!doctype html>
     .btn{display:inline-block;background:linear-gradient(90deg,#5da0ff,#00d2d3);color:#081020;font-weight:700;border:0;padding:10px 14px;border-radius:10px;cursor:pointer;margin-top:12px}
     .faq dt{font-weight:700;margin-top:10px}
     .faq dd{margin:4px 0 10px 0;color:#cbd5e1}
-    .visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   </style>
 </head>
 <body>
@@ -328,18 +201,20 @@ TOOL_PAGE_TEMPLATE = r"""<!doctype html>
 
     <div class="grid">
       <div class="card">
-        <!-- Accessibility label examples -->
-        <label for="fileUpload" class="visually-hidden">Upload PDF</label>
         {{ form_html|safe }}
       </div>
       <div class="card">
         <h2>About this tool</h2>
         <p>{{ about }}</p>
         <h3>Why {{ site_name }}?</h3>
-        <ul><li>No sign-up</li><li>Quality-first processing</li><li>Privacy: temporary files only</li></ul>
+        <ul>
+          <li>No sign-up</li><li>Quality-first processing</li><li>Privacy: temporary files only</li>
+        </ul>
         <h3>FAQ</h3>
         <dl class="faq">
-          {% for q,a in faq %}<dt>{{ q }}</dt><dd>{{ a }}</dd>{% endfor %}
+          {% for q,a in faq %}
+          <dt>{{ q }}</dt><dd>{{ a }}</dd>
+          {% endfor %}
         </dl>
       </div>
     </div>
@@ -349,7 +224,7 @@ TOOL_PAGE_TEMPLATE = r"""<!doctype html>
       <p class="muted">Quick links:</p>
       <p>
         {% for slug,label in other_tools %}
-          <a href="{{ base_url }}/tool/{{ slug }}/">{{ label }}</a>{% if not loop.last %} • {% endif %}
+          <a href="{{ base_url }}/tool/{{ slug }}">{{ label }}</a>{% if not loop.last %} • {% endif %}
         {% endfor %}
       </p>
     </section>
@@ -357,6 +232,7 @@ TOOL_PAGE_TEMPLATE = r"""<!doctype html>
 </body>
 </html>
 """
+
 def _tool_meta(slug:str):
     t = TOOLS[slug]
     title = f"{t['name']} — {SITE_NAME}"
@@ -1078,56 +954,50 @@ Thank you for helping us make {SITE_NAME} better for everyone!
 """
     return PAGES_SIMPLE("Contact", body)
 
-# --- SEO static endpoints ---
-from flask import Response
 
 
 # ==========================
 # Static text endpoints
 # ==========================
+@app.get("/robots.txt")
+def robots():
+    txt = f"User-agent: *\nAllow: /\nSitemap: {BASE_URL}/sitemap.xml\n"
+    return make_response((txt, 200, {"Content-Type":"text/plain"}))
 
-# --- SEO static endpoints ---
-from flask import Response
+@app.get("/ads.txt")
+def ads_txt():
+    # Google AdSense ads.txt line (expects "pub-XXXXXXXXXXXXXXX")
+    publisher_id = ADSENSE_CLIENT.replace("ca-pub-","pub-")
+    txt = f"google.com, {publisher_id}, DIRECT, f08c47fec0942fa0\n"
+    return make_response((txt, 200, {"Content-Type":"text/plain"}))
 
-# ==========================
-# Static text endpoints
-# ==========================
+@app.get("/sitemap.xml")
+def sitemap():
+    urls = [
+        f"{BASE_URL}/",
+        f"{BASE_URL}/about",
+        f"{BASE_URL}/privacy",
+        f"{BASE_URL}/terms",
+        f"{BASE_URL}/contact",
+        f"{BASE_URL}/editor",
+    ] + [tool_abs_url(slug) for slug in TOOLS.keys()]
 
-@app.route("/robots.txt", endpoint="robots_txt_file")
-def robots_txt_file():
-    body = (
-        "User-agent: *\n"
-        "Allow: /\n"
-        f"Sitemap: {BASE_URL}/sitemap.xml\n"
-    )
-    return Response(body, mimetype="text/plain")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    parts = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for u in urls:
+        priority = "1.00" if u.endswith("/") else "0.80"
+        parts += [
+            "  <url>",
+            f"    <loc>{u}</loc>",
+            f"    <lastmod>{now}</lastmod>",
+            "    <changefreq>weekly</changefreq>",
+            f"    <priority>{priority}</priority>",
+            "  </url>"
+        ]
+    parts.append("</urlset>")
+    return make_response(("\n".join(parts), 200, {"Content-Type": "application/xml"}))
 
-
-@app.route("/ads.txt", endpoint="ads_txt_file")
-def ads_txt_file():
-    # Keep this exact format for AdSense verification
-    body = f"google.com, {ADSENSE_CLIENT}, DIRECT, f08c47fec0942fa0\n"
-    return Response(body, mimetype="text/plain")
-
-
-@app.route("/sitemap.xml", endpoint="sitemap_xml_file")
-def sitemap_xml_file():
-    # Homepage + every tool URL (with trailing slash to match your route)
-    pages = [(f"{BASE_URL}/", "daily")] + [
-        (f"{BASE_URL}/tool/{slug}/", "weekly") for slug in TOOLS.keys()
-    ]
-    lastmod = datetime.utcnow().date().isoformat()
-    items = "".join(
-        f"<url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>{freq}</changefreq></url>"
-        for loc, freq in pages
-    )
-    xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-        f"{items}"
-        "</urlset>"
-    )
-    return Response(xml, mimetype="application/xml")
 
 
 # ==========================
@@ -1938,5 +1808,3 @@ def tool_page(slug):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
-
-
