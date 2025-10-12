@@ -5,12 +5,6 @@
 #                 protect, unlock, pdf→images, pdf→docx, watermark, page numbers, office→pdf
 # Static endpoints: /robots.txt, /sitemap.xml, /ads.txt
 
-import base64
-try:
-    import segno  # pip install segno
-except Exception:
-    segno = None
-
 import io, os, re, shutil, tempfile, zipfile
 from typing import List, Tuple
 from datetime import datetime, timezone
@@ -1885,6 +1879,7 @@ def tool_page(slug):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
